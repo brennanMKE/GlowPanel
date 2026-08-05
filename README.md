@@ -9,6 +9,8 @@ Does the same job as the `glow-*.sh` cron scripts, interactively.
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
 Wayland session.
 
+![GlowPanel running on a Raspberry Pi 3B, showing the brightness slider at 100%, six theme buttons, On/Off controls, and per-strip status chips](GlowPanel.png)
+
 ## What it does
 
 - **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
@@ -156,9 +158,10 @@ is reasonable to launch it on demand rather than autostart it.
 ## Known issues
 
 - **Window is too short for its content.** The default 900×620 cuts off the
-  On/Off buttons and the status chips; the layout wants about 700px. Resize as a
-  workaround. Fixing it means changing `Height` in `main.go` and rebuilding,
-  since the frontend is embedded via `go:embed`.
+  On/Off buttons and the status chips; the layout wants about 700px. Resizing is
+  the workaround — the screenshot above is a resized window. Fixing the default
+  means changing `Height` in `main.go` and rebuilding, since the frontend is
+  embedded via `go:embed`.
 
 ## Behaviour worth knowing
 
