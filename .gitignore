@@ -1,0 +1,36 @@
+# Build output.
+# Note this is /build/bin/ and not /build/ — build/appicon.png is a source
+# asset that install-desktop.sh installs into the icon theme, so it stays
+# tracked.
+/build/bin/
+
+# Wails regenerates its JavaScript bindings into frontend/wailsjs on every
+# build (wailsjsdir in wails.json). The frontend does not import them — it
+# uses the runtime-injected window.go.main.App — so there is nothing to keep.
+/frontend/wailsjs/
+
+# Go
+*.exe
+*.test
+*.out
+*.prof
+
+# Never commit the MQTT password. The app reads credentials from
+# ~/.config/glowkitchen/glow.conf on the Pi, which is created by the
+# GlowKitchen install.sh at mode 600 and lives outside this repo. This is a
+# guard in case a copy is ever dropped here for testing.
+glow.conf
+*.local.conf
+
+# Runtime
+*.log
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+
+# Editors
+.vscode/
+.idea/
+*.swp

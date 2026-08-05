@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GlowPanel</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="bar">
+        <h1>GlowPanel</h1>
+        <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></div>
+    </header>
+
+    <div id="error" class="error" hidden></div>
+
+    <main>
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Brightness</h2>
+                <output id="pct" class="pct">—</output>
+            </div>
+
+            <div class="slider-row">
+                <button class="step" id="down" aria-label="Dimmer">−</button>
+                <input type="range" id="bright" min="0" max="100" step="5" value="50"
+                       aria-label="Brightness percent">
+                <button class="step" id="up" aria-label="Brighter">+</button>
+            </div>
+
+            <div class="ticks"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+        </section>
+
+        <section class="panel">
+            <h2>Pick a Look</h2>
+            <div class="themes" id="themes"></div>
+        </section>
+
+        <section class="panel">
+            <h2>Lights</h2>
+            <div class="power">
+                <button class="pw on"  id="on">On</button>
+                <button class="pw off" id="off">Off</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="chips" id="chips"></div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

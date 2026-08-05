@@ -1,0 +1,255 @@
+/* GlowPanel — sized for a Pi's attached display and for small hands.
+   Every interactive target is at least 64px tall. No animations beyond simple
+   transitions: WebKitGTK on a Pi 3B drops frames on anything elaborate. */
+
+:root {
+    --bg: #12101c;
+    --panel: #1d1a2b;
+    --panel-edge: #2e2a42;
+    --text: #f4f2ff;
+    --muted: #a49dc4;
+    --on: #22c55e;
+    --off: #ef4444;
+    --focus: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    overflow-x: hidden;
+}
+
+.bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--panel-edge);
+}
+
+.bar h1 {
+    margin: 0;
+    font-size: 24px;
+    letter-spacing: 0.5px;
+}
+
+.conn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--off);
+}
+
+.dot.ok { background: var(--on); }
+
+.error {
+    margin: 12px 22px 0;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #4a1d1d;
+    border: 1px solid #7f2d2d;
+    color: #ffd9d9;
+    font-size: 14px;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px 22px 8px;
+}
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 16px;
+    padding: 18px 20px 20px;
+}
+
+.panel h2 {
+    margin: 0 0 14px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+}
+
+.panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.pct {
+    font-size: 46px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+/* --- brightness ------------------------------------------------------- */
+
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.step {
+    flex: 0 0 auto;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    border: 1px solid var(--panel-edge);
+    background: #2a2640;
+    color: var(--text);
+    font-size: 34px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.step:active { background: #3a3558; }
+
+input[type="range"] {
+    flex: 1 1 auto;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 22px;
+    border-radius: 11px;
+    background: linear-gradient(90deg, #3a3558, #b4a7ff);
+    outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #fff;
+    border: 4px solid #b4a7ff;
+    cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #fff;
+    border: 4px solid #b4a7ff;
+    cursor: pointer;
+}
+
+.ticks {
+    display: flex;
+    justify-content: space-between;
+    margin: 8px 84px 0;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* --- themes ----------------------------------------------------------- */
+
+.themes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+
+.theme {
+    min-height: 108px;
+    border: 3px solid transparent;
+    border-radius: 16px;
+    color: #fff;
+    font-size: 19px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+    transition: transform 0.08s ease;
+}
+
+.theme .em { font-size: 40px; line-height: 1; }
+.theme:active { transform: scale(0.96); }
+.theme.active { border-color: #fff; }
+
+/* --- power ------------------------------------------------------------ */
+
+.power {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.pw {
+    min-height: 76px;
+    border: none;
+    border-radius: 16px;
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+}
+
+.pw.on  { background: #1a7f43; }
+.pw.off { background: #9b2323; }
+.pw:active { filter: brightness(1.25); }
+
+/* --- device chips ----------------------------------------------------- */
+
+footer { padding: 4px 22px 18px; }
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.chip b { color: var(--text); font-weight: 600; }
+.chip.gone { opacity: 0.45; }
+.chip .s { color: var(--on); }
+.chip.dark .s { color: var(--muted); }
+
+:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+}
+
+/* Narrow or short displays: two theme columns, tighter spacing. */
+@media (max-width: 720px), (max-height: 560px) {
+    .themes { grid-template-columns: repeat(2, 1fr); }
+    .theme { min-height: 88px; font-size: 17px; }
+    .theme .em { font-size: 32px; }
+    .pct { font-size: 36px; }
+    main { gap: 12px; padding: 12px 14px 6px; }
+    .panel { padding: 14px 16px 16px; }
+}
