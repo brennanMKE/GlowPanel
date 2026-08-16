@@ -127,11 +127,12 @@ func (a *App) emitStatus() {
 }
 
 type Status struct {
-	Connected bool
-	Error     string
-	Devices   []DeviceState
-	Percent   int
-	AnyOn     bool
+	Connected  bool
+	Error      string
+	Devices    []DeviceState
+	Percent    int
+	HasPercent bool
+	AnyOn      bool
 }
 
 func (a *App) GetStatus() Status {
@@ -149,6 +150,7 @@ func (a *App) GetStatus() Status {
 		if device.LastSeenAgo >= 0 {
 			if !foundPercent {
 				status.Percent = device.Percent
+				status.HasPercent = true
 				foundPercent = true
 			}
 			if device.Enabled {

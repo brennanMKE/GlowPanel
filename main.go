@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -29,11 +30,12 @@ type panelUI struct {
 	devices         *fyne.Container
 	themeButtons    map[string]*widget.Button
 	deviceSignature string
+	activeTheme     string
 
 	brightnessTimer *time.Timer
 	holdUntil       time.Time
 	suppressActions bool
-	lightsOn        bool
+	closed          atomic.Bool
 }
 
 func main() {
@@ -42,14 +44,20 @@ func main() {
 
 	window := fyneApp.NewWindow("Glow Panel")
 	window.Resize(fyne.NewSize(900, 660))
-	window.SetContent(container.NewCenter(widget.NewLabel("Starting Glow Panel…")))
 
 	ui := newPanelUI()
 	backend := NewApp(func(status Status) {
+		if ui.closed.Load() {
+			return
+		}
+		// This callback can run on either a background goroutine or Fyne's main
+		// goroutine. Keep this non-blocking: replacing Do with DoAndWait would
+		// deadlock when a foreground callback originates on the main goroutine.
 		fyne.Do(func() { ui.applyStatus(status) })
 	})
 	ui.backend = backend
 	window.SetContent(ui.content())
+	window.SetOnClosed(ui.shutdown)
 
 	fyneApp.Lifecycle().SetOnEnteredForeground(backend.RefreshStatus)
 	go backend.Start()
@@ -92,7 +100,6 @@ func newPanelUI() *panelUI {
 		if u.suppressActions || u.backend == nil {
 			return
 		}
-		u.lightsOn = on
 		u.holdUntil = time.Now().Add(1200 * time.Millisecond)
 		u.runCommand(func() string { return u.backend.SetPower(on) })
 	}
@@ -164,16 +171,28 @@ func (u *panelUI) selectTheme(id string) {
 	u.suppressActions = true
 	u.power.SetChecked(true)
 	u.suppressActions = false
-	u.lightsOn = true
 	u.holdUntil = time.Now().Add(1200 * time.Millisecond)
 	u.runCommand(func() string { return u.backend.SetTheme(id) })
 }
 
 func (u *panelUI) runCommand(command func() string) {
+	if u.closed.Load() {
+		return
+	}
 	go func() {
 		errText := command()
+		if u.closed.Load() {
+			return
+		}
 		fyne.Do(func() { u.showError(errText) })
 	}()
+}
+
+func (u *panelUI) shutdown() {
+	u.closed.Store(true)
+	if u.brightnessTimer != nil {
+		u.brightnessTimer.Stop()
+	}
 }
 
 func (u *panelUI) showError(message string) {
@@ -201,9 +220,8 @@ func (u *panelUI) applyStatus(status Status) {
 	}
 
 	u.suppressActions = true
-	u.lightsOn = status.AnyOn
 	u.power.SetChecked(status.AnyOn)
-	if status.Percent > 0 {
+	if status.HasPercent {
 		u.brightness.SetValue(float64(status.Percent))
 		u.brightnessLabel.SetText(fmt.Sprintf("%d%%", status.Percent))
 	}
@@ -248,6 +266,10 @@ func (u *panelUI) renderDevices(devices []DeviceState) {
 }
 
 func (u *panelUI) setActiveTheme(id string) {
+	if id == u.activeTheme {
+		return
+	}
+	u.activeTheme = id
 	for themeID, button := range u.themeButtons {
 		button.Importance = widget.MediumImportance
 		if themeID == id {
