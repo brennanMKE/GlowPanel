@@ -1,0 +1,11 @@
+[Details]
+Icon = "build/appicon.png"
+Name = "Glow Panel"
+ID = "com.brennanmke.glowpanel"
+Version = "0.1.0"
+Build = 1
+
+[LinuxAndBSD]
+GenericName = "GlowKitchen Control Panel"
+Categories = ["Utility"]
+Comment = "Control the GlowKitchen LED strips"

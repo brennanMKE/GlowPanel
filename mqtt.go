@@ -106,8 +106,11 @@ func (b *Broker) Connect() error {
 		b.notify()
 	}
 
-	b.client = mqtt.NewClient(opts)
-	tok := b.client.Connect()
+	client := mqtt.NewClient(opts)
+	b.mu.Lock()
+	b.client = client
+	b.mu.Unlock()
+	tok := client.Connect()
 	if !tok.WaitTimeout(12 * time.Second) {
 		return fmt.Errorf("timed out connecting to %s:%s", b.cfg.Broker, b.cfg.Port)
 	}
@@ -159,12 +162,13 @@ func (b *Broker) onState(_ mqtt.Client, msg mqtt.Message) {
 // stay that way: it is called from button presses alone, never from anything on
 // a timer. Background refreshes use RequestStatus.
 func (b *Broker) Publish(payload string, retain bool) error {
-	if b.client == nil || !b.client.IsConnected() {
+	client := b.currentClient()
+	if client == nil || !client.IsConnected() {
 		return fmt.Errorf("not connected to broker")
 	}
 	var firstErr error
 	for _, d := range b.cfg.Devices {
-		tok := b.client.Publish("lights/"+d+"/cmd", 1, retain, payload)
+		tok := client.Publish("lights/"+d+"/cmd", 1, retain, payload)
 		if !tok.WaitTimeout(5*time.Second) && firstErr == nil {
 			firstErr = fmt.Errorf("timed out publishing to %s", d)
 		} else if err := tok.Error(); err != nil && firstErr == nil {
@@ -180,7 +184,7 @@ func (b *Broker) Publish(payload string, retain bool) error {
 // the broker for a device to replay and act on when it reconnects.
 //
 // Returns false when the request was throttled or the broker is unreachable.
-func (b *Broker) RequestStatus() bool { return b.query(b.client, false) }
+func (b *Broker) RequestStatus() bool { return b.query(b.currentClient(), false) }
 
 // query takes the client explicitly so the OnConnect handler, which runs on a
 // paho goroutine, can use the client it was handed rather than racing the field.
@@ -222,11 +226,19 @@ func (b *Broker) Snapshot() []DeviceState {
 }
 
 func (b *Broker) Connected() bool {
-	return b.client != nil && b.client.IsConnected()
+	client := b.currentClient()
+	return client != nil && client.IsConnected()
 }
 
 func (b *Broker) Disconnect() {
-	if b.client != nil && b.client.IsConnected() {
-		b.client.Disconnect(250)
+	client := b.currentClient()
+	if client != nil && client.IsConnected() {
+		client.Disconnect(250)
 	}
+}
+
+func (b *Broker) currentClient() mqtt.Client {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.client
 }

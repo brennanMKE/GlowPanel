@@ -2,12 +2,12 @@
 #
 # build-on-pi.sh - build GlowPanel on the Raspberry Pi itself.
 #
-# Building on the Pi avoids the CGO cross-compilation problem: Wails links
-# against WebKitGTK, so a plain GOOS=linux GOARCH=arm64 build from macOS will
-# not work without a full cross toolchain and arm64 webkit headers.
+# Building on the Pi avoids the CGO cross-compilation problem: Fyne links to
+# the platform graphics stack, so a plain GOOS=linux GOARCH=arm64 build from
+# macOS still needs a full cross toolchain and arm64 graphics headers.
 #
-# Go compiles comfortably in the Pi's ~600MB of free RAM. There is no npm step
-# because the frontend is plain HTML/CSS/JS with no bundler.
+# Go compiles comfortably in the Pi's ~600MB of free RAM. There is no browser
+# engine or frontend build step.
 #
 # Usage, from this directory on the Pi:
 #   ./build-on-pi.sh
@@ -20,24 +20,17 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Installing build dependencies"
 sudo apt-get update -qq
-# libwebkit2gtk-4.1-dev is the important one. Debian 13 ships only the 4.1 API;
-# there is no 4.0 package, which is why the build needs -tags webkit2_41 below.
-sudo apt-get install -y golang-go gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
-
-export PATH="$PATH:$HOME/go/bin"
-
-if ! command -v wails >/dev/null; then
-    echo "==> Installing the Wails CLI (first run only, takes a few minutes)"
-    go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
-fi
+sudo apt-get install -y golang-go gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
 
 echo "==> Resolving modules"
 go mod tidy
 
+echo "==> Testing"
+go test ./...
+
 echo "==> Building"
-# webkit2_41 selects the WebKitGTK 4.1 API. Without it the build fails looking
-# for webkit2gtk-4.0, which does not exist on Debian 13.
-wails build -tags webkit2_41 -platform linux/arm64
+mkdir -p build/bin
+go build -trimpath -ldflags="-s -w" -o build/bin/glowpanel .
 
 echo
 echo "Built: $(pwd)/build/bin/glowpanel"

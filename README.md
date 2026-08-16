@@ -1,6 +1,6 @@
 # GlowPanel
 
-A Wails desktop app for the [GlowKitchen](https://github.com/brennanMKE/GlowKitchen)
+A Fyne desktop app for the [GlowKitchen](https://github.com/brennanMKE/GlowKitchen)
 LED strips. Big brightness slider, big theme buttons — usable by a child without
 instructions.
 
@@ -20,13 +20,13 @@ Wayland session — and on macOS as a native `.app`.
 
 ## Design notes
 
-**No npm.** The frontend is plain HTML/CSS/JS. Wails injects its Go bindings on
-`window.go.main.App`, so no bundler is needed. A Vite build is the step most
-likely to fail in the Pi's ~600 MB of free RAM, so it is simply not there.
+**Go-native UI.** Fyne draws the controls without embedding WebKitGTK, so the
+Pi no longer starts separate web-content and network processes to render six
+buttons and a slider. There is no npm, browser runtime or frontend build step.
 
 **Event driven, not polled.** The strips publish to `lights/+/state` when they
-change; the Go side pushes a `status` event at the frontend only when the cached
-view actually differs, so an idle panel does no work. Two slow timers remain: a
+change; the broker invokes a UI callback only when the cached view actually
+differs, so an idle panel does no work. Two slow timers remain: a
 local re-render every 60s to keep the "last seen" ages honest, and a `STATUS`
 request every 5 minutes to pick up a strip that rebooted. Bringing the window
 back into focus also asks for a report, throttled to one message per 15s.
@@ -46,70 +46,56 @@ small subset of shell syntax that file uses, including `DEVICES=(a b c)`.
 bottom of the page at its default size. Now the header (title, power switch,
 connection status) and the footer (status chips) are pinned, and only the middle
 scrolls — so nothing can become unreachable however short the window gets. It
-fits without scrolling at the default 900×660 and down to about 480px tall,
-where a media query shrinks the theme buttons rather than adding a scrollbar.
+fits without scrolling at the default 900×660, and the theme grid wraps as the
+window narrows.
 
 Themes come first because they are what anyone walking up to the panel wants,
 and pressing one also turns the strips on. Power went from a pair of 76px
 buttons filling a panel at the bottom — the part that got cut off — to one
 switch in the header.
 
-**GPU disabled deliberately.** `WebviewGpuPolicyNever` in `main.go`: the Pi 3B's
-VideoCore IV gives WebKitGTK nothing useful, and requesting acceleration causes
-flicker and occasional blank surfaces under labwc. It falls back to software
-rendering and logs a GL warning on startup, which is expected.
+**Pi graphics must be measured.** Fyne uses the Pi's graphics driver rather
+than WebKitGTK's software-rendered web view. Test the build under labwc through
+screen blank/wake cycles before deployment. If native Wayland is unstable,
+launch through XWayland by unsetting `WAYLAND_DISPLAY` while keeping `DISPLAY`.
 
 ## Building
 
-Build **on the Pi**. Wails links against WebKitGTK through CGO, so a
-`GOOS=linux GOARCH=arm64` build from macOS needs a full cross toolchain plus
-arm64 webkit headers — not worth the trouble when Go compiles fine on the Pi.
+Build **on the Pi**. Fyne links to the platform graphics stack through CGO, so a
+macOS-to-Linux build still needs an arm64 C cross-toolchain and graphics
+headers. Building on the Pi is simpler.
 
 ```bash
 scp -r glowpanel greenpi:~/
 ssh greenpi 'cd ~/glowpanel && ./build-on-pi.sh && ./install-desktop.sh --desktop'
 ```
 
-`build-on-pi.sh` installs `golang-go`, `libwebkit2gtk-4.1-dev` and friends,
-fetches the Wails CLI, and builds. First run pulls roughly 300 MB and takes
-several minutes on an A53; later builds are fast.
-
-The one non-obvious flag:
-
-```bash
-wails build -tags webkit2_41
-```
-
-Debian 13 ships **only** the WebKitGTK 4.1 API — there is no
-`libwebkit2gtk-4.0-37` package at all. Wails v2 defaults to 4.0, so without this
-tag the build fails on a missing dependency.
+`build-on-pi.sh` installs Go, the compiler and the Mesa/X11/Wayland development
+headers required by Fyne, resolves the Go modules, runs the full test suite and
+builds `build/bin/glowpanel`. WebKitGTK is not a build or runtime dependency.
 
 ## Building for macOS
 
-Unlike the Pi build, this one is straightforward — macOS uses the system
-WKWebView, so there is no CGO/webkit dependency to wrestle with.
+The Fyne command packages the already-built binary and app metadata into a
+standard macOS bundle:
 
 ```bash
 brew install go
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
-wails build -platform darwin/arm64
-mv build/bin/glowpanel.app "build/bin/Glow Panel.app"   # nicer name in Finder
+go install fyne.io/tools/cmd/fyne@latest
+go test ./...
+fyne package -os darwin -release
 ```
 
-Produces a real bundle at `build/bin/Glow Panel.app` — 8.7 MB, arm64, with
-`build/appicon.png` converted to `iconfile.icns`. Drag it to `/Applications`.
+Produces `Glow Panel.app`, using the identifier, version and icon from
+`FyneApp.toml`. Drag it to `/Applications`.
 
-Bundle metadata lives in `build/darwin/Info.plist`; the bundle identifier is
-`com.brennanmke.glowpanel`. `CFBundleName` and `CFBundleDisplayName` both come
-from `productName` in `wails.json`, so the menu bar reads **Glow Panel** while
-the binary, the repo and the bundle ID stay `glowpanel`.
+The bundle identifier remains `com.brennanmke.glowpanel`.
 
 ### Signing
 
-Wails ad-hoc signs the bundle, so `spctl` reports **rejected** and it has no
-Team ID. That is fine for a locally built app: Gatekeeper only blocks bundles
-carrying a `com.apple.quarantine` attribute, which downloads get and local
-builds do not.
+The locally packaged bundle is not ready for redistribution. That is fine for
+a local build, but a downloaded or shared bundle needs Developer ID signing and
+notarization.
 
 It matters the moment you send it to anyone else — over AirDrop, a download, or
 a DMG — at which point it needs Developer ID signing and notarization or the
@@ -142,9 +128,8 @@ usable remotely.
 
 ### macOS footprint
 
-~105 MB resident, against ~372 MB summed RSS on the Pi. WKWebView is provided by
-the system and shared, so there is no bundled engine and no separate WebKit
-processes counted against the app.
+Measure the Fyne port before recording a new baseline. The old Wails build was
+about 105 MB resident on macOS.
 
 ## Desktop integration
 
@@ -188,12 +173,12 @@ Fontconfig is read at process start, so relaunch the app afterwards.
 
 ## Deploying to a second Pi
 
-No rebuild needed for identical hardware and OS. The binary is dynamically
-linked, so the target needs the WebKit **runtime** — not the ~300 MB dev
-toolchain:
+No rebuild is needed for identical hardware and OS. The binary is dynamically
+linked to the platform graphics libraries, which a matching Raspberry Pi OS
+desktop normally already provides:
 
 ```bash
-ssh rainbowpi 'sudo apt install -y libwebkit2gtk-4.1-0 fonts-noto-color-emoji'
+ssh rainbowpi 'sudo apt install -y fonts-noto-color-emoji'
 scp greenpi:~/glowpanel/build/bin/glowpanel rainbowpi:~/glowpanel/build/bin/
 scp install-desktop.sh glowpanel.desktop rainbowpi:~/glowpanel/
 ssh rainbowpi 'cd ~/glowpanel && ./install-desktop.sh --desktop'
@@ -220,9 +205,10 @@ file also carries the `swayidle` line for screen blanking, so do not replace it:
 /usr/bin/lwrespawn /home/pi/glowpanel/build/bin/glowpanel &
 ```
 
-## Measured footprint
+## Previous Wails footprint
 
-On a Pi 3B, idle, immediately after launch:
+For comparison, the Wails version measured this on a Pi 3B immediately after
+launch:
 
 ```
 WebKitWebProcess      160.8 MB
@@ -233,11 +219,10 @@ TOTAL (RSS)           371.9 MB
 available: 665 MB -> 598 MB   (-67 MB)
 ```
 
-Those figures disagree because summed RSS double-counts pages shared between
-the three processes. The ~67 MB drop in available memory is the genuinely
-unavailable portion; most of the remainder is file-backed library code the
-kernel can reclaim under pressure. Budget somewhere between the two, and expect
-the WebProcess to grow under sustained use.
+Those figures disagree because summed RSS double-counts shared pages. The ~67 MB
+drop in available memory is the more meaningful baseline. Measure the Fyne build
+with PSS (`/proc/<pid>/smaps_rollup`) and the change in `MemAvailable` under the
+same desktop session before claiming the migration's savings.
 
 The cron scripts keep working with the panel closed, so on a memory-tight Pi it
 is reasonable to launch it on demand rather than autostart it.
@@ -256,22 +241,18 @@ the cron scripts, so a strip that reboots picks up the level it last received.
 
 | File | Purpose |
 |---|---|
-| `main.go` | Wails setup, window options, Linux GPU policy |
-| `app.go` | Methods bound to the frontend; theme table |
+| `main.go` | Fyne window, controls, layout and status rendering |
+| `app.go` | Application lifecycle, command methods and theme table |
 | `mqtt.go` | paho client, publish, `lights/+/state` subscription and cache |
 | `config.go` | `glow.conf` parser, percent ↔ 0–225 conversion |
-| `frontend/dist/` | `index.html`, `style.css`, `app.js` — no build step |
 | `build/appicon.png` | Source asset; icon theme on Linux, `.icns` on macOS |
-| `build/darwin/` | macOS bundle metadata (`Info.plist`) |
-| `build-on-pi.sh` | Dependencies, Wails CLI, build |
+| `FyneApp.toml` | Package name, version, bundle ID and icon |
+| `build-on-pi.sh` | Dependencies, tests and release build |
 | `install-desktop.sh` | Binary, icon, `.desktop` entry |
 | `glowpanel.desktop` | Launcher definition |
 
 This Mac checkout is the source of truth. `~/glowpanel` on greenpi is the build
-directory — same source plus `build/bin/`, the Go module cache, and the Wails
-CLI. `~/glowpanel` on rainbowpi holds only a staged binary and the install
-scripts.
+directory — same source plus `build/bin/` and the Go module cache.
+`~/glowpanel` on rainbowpi holds only a staged binary and the install scripts.
 
-Edit here, `scp` to greenpi, rebuild, reinstall, copy the binary onward.
-Anything under `frontend/dist/` needs a rebuild too, since `go:embed` compiles
-it into the binary.
+Edit here, `scp` to greenpi, rebuild, reinstall, and copy the binary onward.

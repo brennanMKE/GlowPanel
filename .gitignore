@@ -1,6 +1,5 @@
 # --- build output ---------------------------------------------------------
-# Everything the Wails CLI produces lands in build/bin: the Linux binary, the
-# macOS .app bundle, and the .icns it generates from appicon.png.
+# The Pi build script places its release binary here.
 /build/bin/
 
 # Bundles and installers, wherever they end up.
@@ -10,23 +9,13 @@
 *.zip
 *.tar.gz
 
-# A bare `go build ./...` drops a binary named after the module in the repo
-# root. Real builds go to build/bin via the Wails CLI.
+# A bare `go build` drops a binary named after the module in the repo root.
+# Real Pi builds go to build/bin; Fyne packaging creates an ignored app bundle.
 /glowpanel
 
-# --- generated source -----------------------------------------------------
-# Wails regenerates its JavaScript bindings here on every build (wailsjsdir in
-# wails.json). The frontend does not import them — it uses the runtime-injected
-# window.go.main.App — so there is nothing worth keeping.
-/frontend/wailsjs/
-
 # --- NOT ignored, deliberately --------------------------------------------
-# build/appicon.png      source asset: icon theme on Linux, .icns on macOS
-# build/darwin/*.plist   Wails bundle *templates* containing {{.Info.*}}
-#                        placeholders, plus the CFBundleIdentifier. These are
-#                        inputs, not output. Ignoring them makes a fresh clone
-#                        build with Wails' stock defaults and silently lose the
-#                        com.brennanmke.glowpanel identifier.
+# build/appicon.png      source asset for Linux and macOS packaging
+# FyneApp.toml           package metadata, including the stable bundle ID
 
 # --- secrets --------------------------------------------------------------
 # Never commit the MQTT password. The app reads credentials from
