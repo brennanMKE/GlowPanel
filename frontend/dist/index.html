@@ -3,18 +3,35 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>GlowPanel</title>
+    <title>Glow Panel</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <header class="bar">
-        <h1>GlowPanel</h1>
-        <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></div>
+        <h1>Glow Panel</h1>
+        <div class="bar-right">
+            <!-- On/Off used to be a pair of big buttons taking a whole panel at
+                 the bottom of the page, where a short window cut them off. It is
+                 one switch up here instead: rarely the thing you came for, and
+                 always visible. -->
+            <button type="button" id="power" class="toggle" role="switch" aria-checked="false">
+                <span class="track"><span class="knob"></span></span>
+                <span class="tlabel" id="powerLabel">Off</span>
+            </button>
+            <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></div>
+        </div>
     </header>
 
     <div id="error" class="error" hidden></div>
 
+    <!-- Themes first: they are what anyone walking up to the panel actually
+         wants, and pressing one also turns the strips on. -->
     <main>
+        <section class="panel">
+            <h2>Pick a Look</h2>
+            <div class="themes" id="themes"></div>
+        </section>
+
         <section class="panel">
             <div class="panel-head">
                 <h2>Brightness</h2>
@@ -29,19 +46,6 @@
             </div>
 
             <div class="ticks"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
-        </section>
-
-        <section class="panel">
-            <h2>Pick a Look</h2>
-            <div class="themes" id="themes"></div>
-        </section>
-
-        <section class="panel">
-            <h2>Lights</h2>
-            <div class="power">
-                <button class="pw on"  id="on">On</button>
-                <button class="pw off" id="off">Off</button>
-            </div>
         </section>
     </main>
 

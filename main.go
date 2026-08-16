@@ -17,13 +17,19 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "GlowPanel",
-		Width:  900,
-		Height: 620,
+		Title: "Glow Panel",
+		Width: 900,
+		// The layout needs about 600px for everything to be visible at once.
+		// 660 leaves a little headroom for font differences between WebKitGTK
+		// and WKWebView, and still fits a 1280x720 Pi display once the titlebar
+		// is accounted for.
+		Height: 660,
 		// The Pi's attached display is 1280x720 or smaller in most setups, so
-		// keep the minimum small enough to fit without clipping the buttons.
+		// keep the minimum small enough to fit. Below the layout's natural
+		// height the header and the status chips stay put and the middle
+		// scrolls, so nothing becomes unreachable.
 		MinWidth:  640,
-		MinHeight: 480,
+		MinHeight: 420,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

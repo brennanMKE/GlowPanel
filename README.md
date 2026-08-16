@@ -9,13 +9,13 @@ Does the same job as the `glow-*.sh` cron scripts, interactively.
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
 Wayland session.
 
-![GlowPanel running on a Raspberry Pi 3B, showing the brightness slider at 100%, six theme buttons, On/Off controls, and per-strip status chips](GlowPanel.png)
+![Glow Panel showing six theme buttons, the brightness slider at 100%, the power switch in the header, and per-strip status chips](GlowPanel.png)
 
 ## What it does
 
-- **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
 - **Six theme buttons** with colour and emoji, sized for small hands
-- **On / Off**
+- **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
+- **On / Off** as a switch in the header, next to the connection status
 - **Live status** per strip, pushed from `lights/+/state` as the strips report
 
 ## Design notes
@@ -41,6 +41,18 @@ and act on when it reconnects. Themes, brightness and power go through
 the same file the GlowKitchen `install.sh` already wrote for the cron scripts.
 One broker address, one copy of the password, no drift. `config.go` parses the
 small subset of shell syntax that file uses, including `DEVICES=(a b c)`.
+
+**Fixed header, scrolling middle, fixed footer.** The window used to cut off the
+bottom of the page at its default size. Now the header (title, power switch,
+connection status) and the footer (status chips) are pinned, and only the middle
+scrolls — so nothing can become unreachable however short the window gets. It
+fits without scrolling at the default 900×660 and down to about 480px tall,
+where a media query shrinks the theme buttons rather than adding a scrollbar.
+
+Themes come first because they are what anyone walking up to the panel wants,
+and pressing one also turns the strips on. Power went from a pair of 76px
+buttons filling a panel at the bottom — the part that got cut off — to one
+switch in the header.
 
 **GPU disabled deliberately.** `WebviewGpuPolicyNever` in `main.go`: the Pi 3B's
 VideoCore IV gives WebKitGTK nothing useful, and requesting acceleration causes
@@ -167,14 +179,6 @@ the WebProcess to grow under sustained use.
 
 The cron scripts keep working with the panel closed, so on a memory-tight Pi it
 is reasonable to launch it on demand rather than autostart it.
-
-## Known issues
-
-- **Window is too short for its content.** The default 900×620 cuts off the
-  On/Off buttons and the status chips; the layout wants about 700px. Resizing is
-  the workaround — the screenshot above is a resized window. Fixing the default
-  means changing `Height` in `main.go` and rebuilding, since the frontend is
-  embedded via `go:embed`.
 
 ## Behaviour worth knowing
 

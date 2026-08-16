@@ -1,6 +1,11 @@
-/* GlowPanel — sized for a Pi's attached display and for small hands.
-   Every interactive target is at least 64px tall. No animations beyond simple
-   transitions: WebKitGTK on a Pi 3B drops frames on anything elaborate. */
+/* Glow Panel — sized for a Pi's attached display and for small hands.
+   The main controls are at least 64px tall. No animations beyond simple
+   transitions: WebKitGTK on a Pi 3B drops frames on anything elaborate.
+
+   The page is a fixed header, a scrolling middle and a fixed footer, so the
+   status chips and the power switch stay on screen no matter how short the
+   window is. Everything below still fits in the default 900x620 without
+   scrolling; the scroll is there for when it does not. */
 
 :root {
     --bg: #12101c;
@@ -23,21 +28,82 @@ html, body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     -webkit-user-select: none;
     user-select: none;
-    overflow-x: hidden;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .bar {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 22px;
+    gap: 16px;
+    padding: 10px 20px;
     border-bottom: 1px solid var(--panel-edge);
 }
 
 .bar h1 {
     margin: 0;
-    font-size: 24px;
+    font-size: 22px;
     letter-spacing: 0.5px;
+    white-space: nowrap;
+}
+
+.bar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* --- power switch ------------------------------------------------------ */
+
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 5px 14px 5px 6px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.track {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    border-radius: 999px;
+    background: #3a3558;
+    transition: background 0.12s ease;
+}
+
+.knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.12s ease;
+}
+
+.toggle.on .track { background: var(--on); }
+.toggle.on .knob { transform: translateX(22px); }
+
+/* Reserve the wider of "On"/"Off" so the header does not shift on toggle. */
+.tlabel {
+    min-width: 24px;
+    text-align: left;
 }
 
 .conn {
@@ -68,21 +134,23 @@ html, body {
 }
 
 main {
+    flex: 1 1 auto;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    padding: 18px 22px 8px;
+    gap: 14px;
+    padding: 14px 20px 8px;
 }
 
 .panel {
     background: var(--panel);
     border: 1px solid var(--panel-edge);
     border-radius: 16px;
-    padding: 18px 20px 20px;
+    padding: 14px 16px 16px;
 }
 
 .panel h2 {
-    margin: 0 0 14px;
+    margin: 0 0 10px;
     font-size: 17px;
     font-weight: 600;
     color: var(--muted);
@@ -97,7 +165,7 @@ main {
 }
 
 .pct {
-    font-size: 46px;
+    font-size: 38px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     line-height: 1;
@@ -173,7 +241,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .theme {
-    min-height: 108px;
+    min-height: 96px;
     border: 3px solid transparent;
     border-radius: 16px;
     color: #fff;
@@ -193,31 +261,12 @@ input[type="range"]::-moz-range-thumb {
 .theme:active { transform: scale(0.96); }
 .theme.active { border-color: #fff; }
 
-/* --- power ------------------------------------------------------------ */
-
-.power {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-}
-
-.pw {
-    min-height: 76px;
-    border: none;
-    border-radius: 16px;
-    font-size: 24px;
-    font-weight: 700;
-    color: #fff;
-    cursor: pointer;
-}
-
-.pw.on  { background: #1a7f43; }
-.pw.off { background: #9b2323; }
-.pw:active { filter: brightness(1.25); }
-
 /* --- device chips ----------------------------------------------------- */
 
-footer { padding: 4px 22px 18px; }
+footer {
+    flex: 0 0 auto;
+    padding: 6px 20px 14px;
+}
 
 .chips {
     display: flex;
@@ -244,12 +293,20 @@ footer { padding: 4px 22px 18px; }
     outline-offset: 3px;
 }
 
-/* Narrow or short displays: two theme columns, tighter spacing. */
-@media (max-width: 720px), (max-height: 560px) {
+/* Narrow displays: two theme columns rather than three. */
+@media (max-width: 720px) {
     .themes { grid-template-columns: repeat(2, 1fr); }
-    .theme { min-height: 88px; font-size: 17px; }
-    .theme .em { font-size: 32px; }
-    .pct { font-size: 36px; }
-    main { gap: 12px; padding: 12px 14px 6px; }
-    .panel { padding: 14px 16px 16px; }
+}
+
+/* Short displays: shrink before resorting to a scrollbar. */
+@media (max-height: 560px) {
+    .theme { min-height: 66px; font-size: 17px; }
+    .theme .em { font-size: 30px; }
+    .pct { font-size: 28px; }
+    .step { width: 60px; height: 60px; font-size: 30px; }
+    main { gap: 10px; padding: 10px 14px 6px; }
+    .panel { padding: 12px 14px 12px; }
+    .panel h2 { margin-bottom: 8px; }
+    .ticks { margin: 5px 76px 0; }
+    footer { padding: 4px 14px 10px; }
 }

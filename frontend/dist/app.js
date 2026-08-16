@@ -12,8 +12,8 @@ const el = {
     up: $("up"),
     down: $("down"),
     themes: $("themes"),
-    on: $("on"),
-    off: $("off"),
+    power: $("power"),
+    powerLabel: $("powerLabel"),
     dot: $("dot"),
     connText: $("connText"),
     chips: $("chips"),
@@ -28,6 +28,7 @@ const holding = () => Date.now() < holdUntil;
 
 let sendTimer = null;
 let activeTheme = null;
+let lightsOn = false;
 
 function app() {
     return window.go && window.go.main && window.go.main.App;
@@ -64,15 +65,30 @@ async function pickTheme(theme) {
     const a = app();
     if (!a) return;
     setActiveTheme(theme.id);
+    // The firmware re-enables a disabled strip when it receives a theme, so the
+    // switch belongs on the moment the button is pressed.
+    setPowerUI(true);
     hold(1200);
     showError(await a.SetTheme(theme.id));
 }
 
-async function power(on) {
+function setPowerUI(on) {
+    lightsOn = on;
+    el.power.classList.toggle("on", on);
+    el.power.setAttribute("aria-checked", on ? "true" : "false");
+    el.powerLabel.textContent = on ? "On" : "Off";
+}
+
+// The switch moves immediately rather than waiting for the strips to answer,
+// so a press always feels like it did something. hold() keeps the reported
+// state from flicking it back while the command is in flight.
+async function togglePower() {
+    const next = !lightsOn;
+    setPowerUI(next);
+    hold(1200);
     const a = app();
     if (!a) return;
-    hold(1200);
-    showError(await a.SetPower(on));
+    showError(await a.SetPower(next));
 }
 
 function setActiveTheme(id) {
@@ -144,6 +160,7 @@ function applyStatus(s) {
     renderChips(s.devices || []);
 
     if (!holding()) {
+        setPowerUI(!!s.anyOn);
         if (typeof s.percent === "number" && s.percent > 0) {
             el.bright.value = s.percent;
             el.pct.textContent = s.percent + "%";
@@ -172,8 +189,7 @@ async function fetchStatus() {
 el.bright.addEventListener("input", (e) => queueBrightness(Number(e.target.value)));
 el.up.addEventListener("click", () => nudge(5));
 el.down.addEventListener("click", () => nudge(-5));
-el.on.addEventListener("click", () => power(true));
-el.off.addEventListener("click", () => power(false));
+el.power.addEventListener("click", togglePower);
 
 // Wails injects its bindings after the page loads, so wait for them rather
 // than assuming they are present on first script execution.

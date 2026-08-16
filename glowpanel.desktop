@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=GlowPanel
+Name=Glow Panel
 GenericName=LED Control Panel
 Comment=Set the brightness and theme of the GlowKitchen LED strips
 Exec=/usr/local/bin/glowpanel
