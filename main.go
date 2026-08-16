@@ -28,6 +28,7 @@ type panelUI struct {
 	errorLabel      *widget.Label
 	devices         *fyne.Container
 	themeButtons    map[string]*widget.Button
+	deviceSignature string
 
 	brightnessTimer *time.Timer
 	holdUntil       time.Time
@@ -221,6 +222,15 @@ func (u *panelUI) applyStatus(status Status) {
 }
 
 func (u *panelUI) renderDevices(devices []DeviceState) {
+	var signature strings.Builder
+	for _, device := range devices {
+		fmt.Fprintf(&signature, "%s:%d:%t:%t;", device.Name, device.Percent, device.Enabled, device.LastSeenAgo < 0)
+	}
+	if signature.String() == u.deviceSignature {
+		return
+	}
+	u.deviceSignature = signature.String()
+
 	objects := make([]fyne.CanvasObject, 0, len(devices))
 	for _, device := range devices {
 		text := device.Name + " — no reply"

@@ -144,10 +144,12 @@ func (a *App) GetStatus() Status {
 	}
 	status.Connected = a.broker.Connected()
 	status.Devices = a.broker.Snapshot()
+	foundPercent := false
 	for _, device := range status.Devices {
 		if device.LastSeenAgo >= 0 {
-			if status.Percent == 0 {
+			if !foundPercent {
 				status.Percent = device.Percent
+				foundPercent = true
 			}
 			if device.Enabled {
 				status.AnyOn = true
@@ -183,7 +185,7 @@ func (a *App) SetTheme(id string) string {
 	if !valid {
 		return "unknown theme: " + id
 	}
-	if err := a.broker.Publish(id, true); err != nil {
+	if err := a.broker.Publish(id, a.cfg.Retain); err != nil {
 		return err.Error()
 	}
 	log.Printf("theme -> %s", id)

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestThemeMatches(t *testing.T) {
 	tests := []struct {
@@ -19,5 +22,19 @@ func TestThemeMatches(t *testing.T) {
 		if got := themeMatches(test.id, test.reported); got != test.want {
 			t.Errorf("themeMatches(%q, %q) = %v, want %v", test.id, test.reported, got, test.want)
 		}
+	}
+}
+
+func TestGetStatusUsesFirstReportingDeviceBrightness(t *testing.T) {
+	cfg := &Config{Devices: []string{"first", "second"}}
+	broker := NewBroker(cfg)
+	broker.state["first"] = &DeviceState{Name: "first", Percent: 0}
+	broker.state["second"] = &DeviceState{Name: "second", Percent: 80}
+	broker.seen["first"] = time.Now()
+	broker.seen["second"] = time.Now()
+
+	application := &App{broker: broker}
+	if got := application.GetStatus().Percent; got != 0 {
+		t.Fatalf("GetStatus().Percent = %d, want first reporting device value 0", got)
 	}
 }
