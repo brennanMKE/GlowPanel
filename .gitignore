@@ -1,36 +1,63 @@
-# Build output.
-# Note this is /build/bin/ and not /build/ — build/appicon.png is a source
-# asset that install-desktop.sh installs into the icon theme, so it stays
-# tracked.
+# --- build output ---------------------------------------------------------
+# Everything the Wails CLI produces lands in build/bin: the Linux binary, the
+# macOS .app bundle, and the .icns it generates from appicon.png.
 /build/bin/
 
-# Wails regenerates its JavaScript bindings into frontend/wailsjs on every
-# build (wailsjsdir in wails.json). The frontend does not import them — it
-# uses the runtime-injected window.go.main.App — so there is nothing to keep.
+# Bundles and installers, wherever they end up.
+*.app/
+*.dmg
+*.pkg
+*.zip
+*.tar.gz
+
+# A bare `go build ./...` drops a binary named after the module in the repo
+# root. Real builds go to build/bin via the Wails CLI.
+/glowpanel
+
+# --- generated source -----------------------------------------------------
+# Wails regenerates its JavaScript bindings here on every build (wailsjsdir in
+# wails.json). The frontend does not import them — it uses the runtime-injected
+# window.go.main.App — so there is nothing worth keeping.
 /frontend/wailsjs/
 
-# Go
+# --- NOT ignored, deliberately --------------------------------------------
+# build/appicon.png      source asset: icon theme on Linux, .icns on macOS
+# build/darwin/*.plist   Wails bundle *templates* containing {{.Info.*}}
+#                        placeholders, plus the CFBundleIdentifier. These are
+#                        inputs, not output. Ignoring them makes a fresh clone
+#                        build with Wails' stock defaults and silently lose the
+#                        com.brennanmke.glowpanel identifier.
+
+# --- secrets --------------------------------------------------------------
+# Never commit the MQTT password. The app reads credentials from
+# ~/.config/glowkitchen/glow.conf, which lives outside this repo at mode 600 on
+# both the Pis and the Mac. This is a guard in case a copy is ever dropped here.
+glow.conf
+*.local.conf
+.env
+.env.*
+
+# --- Go -------------------------------------------------------------------
 *.exe
 *.test
 *.out
 *.prof
+go.work
+go.work.sum
+/vendor/
 
-# Never commit the MQTT password. The app reads credentials from
-# ~/.config/glowkitchen/glow.conf on the Pi, which is created by the
-# GlowKitchen install.sh at mode 600 and lives outside this repo. This is a
-# guard in case a copy is ever dropped here for testing.
-glow.conf
-*.local.conf
-
-# Runtime
+# --- runtime --------------------------------------------------------------
 *.log
 
-# macOS
+# --- macOS ----------------------------------------------------------------
 .DS_Store
 ._*
 .AppleDouble
+.Spotlight-V100
+.Trashes
 
-# Editors
+# --- editors --------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
+*~

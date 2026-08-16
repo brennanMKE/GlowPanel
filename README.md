@@ -7,9 +7,9 @@ instructions.
 Does the same job as the `glow-*.sh` cron scripts, interactively.
 
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
-Wayland session.
+Wayland session — and on macOS as a native `.app`.
 
-![Glow Panel showing six theme buttons, the brightness slider at 100%, the power switch in the header, and per-strip status chips](GlowPanel.png)
+![GlowPanel running on a Raspberry Pi 3B, showing the brightness slider at 100%, six theme buttons, On/Off controls, and per-strip status chips](GlowPanel.png)
 
 ## What it does
 
@@ -83,6 +83,68 @@ wails build -tags webkit2_41
 Debian 13 ships **only** the WebKitGTK 4.1 API — there is no
 `libwebkit2gtk-4.0-37` package at all. Wails v2 defaults to 4.0, so without this
 tag the build fails on a missing dependency.
+
+## Building for macOS
+
+Unlike the Pi build, this one is straightforward — macOS uses the system
+WKWebView, so there is no CGO/webkit dependency to wrestle with.
+
+```bash
+brew install go
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+wails build -platform darwin/arm64
+mv build/bin/glowpanel.app "build/bin/Glow Panel.app"   # nicer name in Finder
+```
+
+Produces a real bundle at `build/bin/Glow Panel.app` — 8.7 MB, arm64, with
+`build/appicon.png` converted to `iconfile.icns`. Drag it to `/Applications`.
+
+Bundle metadata lives in `build/darwin/Info.plist`; the bundle identifier is
+`com.brennanmke.glowpanel`. `CFBundleName` and `CFBundleDisplayName` both come
+from `productName` in `wails.json`, so the menu bar reads **Glow Panel** while
+the binary, the repo and the bundle ID stay `glowpanel`.
+
+### Signing
+
+Wails ad-hoc signs the bundle, so `spctl` reports **rejected** and it has no
+Team ID. That is fine for a locally built app: Gatekeeper only blocks bundles
+carrying a `com.apple.quarantine` attribute, which downloads get and local
+builds do not.
+
+It matters the moment you send it to anyone else — over AirDrop, a download, or
+a DMG — at which point it needs Developer ID signing and notarization or the
+recipient gets "unidentified developer".
+
+### Configuration on macOS
+
+The Mac has no `glow.conf` by default. The app falls back to environment
+variables (`MQTT_PASSWORD`, `MQTT_USER`, `GLOW_BROKER`, `GLOW_PORT`,
+`GLOW_DEVICES`), which covers launching from a terminal.
+
+**A Finder-launched app bundle does not inherit your shell environment**, so for
+double-click launching you need a real config file:
+
+```bash
+mkdir -p ~/.config/glowkitchen && chmod 700 ~/.config/glowkitchen
+cat > ~/.config/glowkitchen/glow.conf <<'EOF'
+BROKER="your.broker.address"
+PORT="1883"
+MQTT_USER="mqtt"
+MQTT_PASSWORD="your-password"
+DEVICES=(tv desk kitchen workbench recycling)
+EOF
+chmod 600 ~/.config/glowkitchen/glow.conf
+```
+
+Reaching the broker from outside the space relies on a Tailscale subnet router
+advertising the network the broker sits on. That is what makes the Mac app
+usable remotely.
+
+### macOS footprint
+
+~105 MB resident, against ~372 MB summed RSS on the Pi. WKWebView is provided by
+the system and shared, so there is no bundled engine and no separate WebKit
+processes counted against the app.
 
 ## Desktop integration
 
@@ -199,7 +261,8 @@ the cron scripts, so a strip that reboots picks up the level it last received.
 | `mqtt.go` | paho client, publish, `lights/+/state` subscription and cache |
 | `config.go` | `glow.conf` parser, percent ↔ 0–225 conversion |
 | `frontend/dist/` | `index.html`, `style.css`, `app.js` — no build step |
-| `build/appicon.png` | Source asset, installed into the icon theme |
+| `build/appicon.png` | Source asset; icon theme on Linux, `.icns` on macOS |
+| `build/darwin/` | macOS bundle metadata (`Info.plist`) |
 | `build-on-pi.sh` | Dependencies, Wails CLI, build |
 | `install-desktop.sh` | Binary, icon, `.desktop` entry |
 | `glowpanel.desktop` | Launcher definition |

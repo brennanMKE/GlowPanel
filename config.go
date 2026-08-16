@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,13 +50,21 @@ var (
 	arrayRe  = regexp.MustCompile(`^([A-Z_]+)=\((.*)\)$`)
 )
 
-// LoadConfig parses the shell-syntax glow.conf. It handles the small subset the
-// file actually uses: KEY="value", KEY=value, and KEY=(a b c). Anything else is
-// ignored rather than treated as an error, so the scripts can grow new settings
-// without breaking this app.
+// LoadConfig parses the shell-syntax glow.conf, then lets environment variables
+// override whatever it found. A missing file is not an error as long as the
+// environment supplies a password — that is how this runs on a Mac, which has
+// no glow.conf because it uses the zsh scripts in GlowKitchen/scripts instead.
+//
+// Caveat worth knowing on macOS: an app bundle launched from Finder does not
+// inherit your shell environment, so $MQTT_PASSWORD only reaches the app when
+// it is started from a terminal. For double-click launching, write a real
+// ~/.config/glowkitchen/glow.conf.
 func LoadConfig(path string) (*Config, error) {
 	cfg := &Config{
-		Broker:            "192.168.88.254",
+		// Placeholder only. The real broker address comes from glow.conf or
+		// the GLOW_BROKER environment variable; it is deliberately not in the
+		// repository.
+		Broker:            "127.0.0.1",
 		Port:              "1883",
 		User:              "mqtt",
 		Devices:           []string{"tv", "desk", "kitchen", "workbench", "recycling"},
@@ -65,9 +74,54 @@ func LoadConfig(path string) (*Config, error) {
 		Retain:            true,
 	}
 
+	haveFile := true
+	if err := parseConfigFile(path, cfg); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return cfg, fmt.Errorf("could not read %s: %w", path, err)
+		}
+		haveFile = false
+	}
+
+	applyEnvOverrides(cfg)
+
+	if cfg.Password == "" {
+		if !haveFile {
+			return cfg, fmt.Errorf("no config at %s, and MQTT_PASSWORD is not set", path)
+		}
+		return cfg, fmt.Errorf("MQTT_PASSWORD is empty in %s", path)
+	}
+	return cfg, nil
+}
+
+// applyEnvOverrides lets the environment win over the config file, which makes
+// one-off runs easy: MQTT_PASSWORD=... ./GlowPanel
+func applyEnvOverrides(cfg *Config) {
+	if v := os.Getenv("MQTT_PASSWORD"); v != "" {
+		cfg.Password = v
+	}
+	if v := os.Getenv("MQTT_USER"); v != "" {
+		cfg.User = v
+	}
+	if v := os.Getenv("GLOW_BROKER"); v != "" {
+		cfg.Broker = v
+	}
+	if v := os.Getenv("GLOW_PORT"); v != "" {
+		cfg.Port = v
+	}
+	// Accepts either "tv desk kitchen" or "tv,desk,kitchen".
+	if v := os.Getenv("GLOW_DEVICES"); v != "" {
+		cfg.Devices = splitWords(strings.ReplaceAll(v, ",", " "))
+	}
+}
+
+// parseConfigFile handles the small subset of shell syntax glow.conf uses:
+// KEY="value", KEY=value, and KEY=(a b c). Anything else is ignored rather than
+// treated as an error, so the scripts can grow new settings without breaking
+// this app.
+func parseConfigFile(path string, cfg *Config) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return cfg, fmt.Errorf("could not read %s: %w", path, err)
+		return err
 	}
 	defer f.Close()
 
@@ -111,10 +165,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	if cfg.Password == "" {
-		return cfg, fmt.Errorf("MQTT_PASSWORD is empty in %s", path)
-	}
-	return cfg, scanner.Err()
+	return scanner.Err()
 }
 
 // unquote strips surrounding quotes and any trailing inline comment. The config
