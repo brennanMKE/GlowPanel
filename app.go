@@ -2,24 +2,38 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"log"
 	"sync"
 	"time"
 )
 
 type Theme struct {
-	ID    string
-	Label string
-	Emoji string
+	ID     string
+	Label  string
+	Emoji  string
+	Colors []color.NRGBA
 }
 
 var themes = []Theme{
-	{ID: "RAINBOW", Label: "Rainbow", Emoji: "🌈"},
-	{ID: "GREEN", Label: "Green", Emoji: "🌿"},
-	{ID: "PINK_PONY", Label: "Pink Pony", Emoji: "🦄"},
-	{ID: "OCEAN_WAVES", Label: "Ocean", Emoji: "🌊"},
-	{ID: "SUNSET", Label: "Sunset", Emoji: "🌅"},
-	{ID: "FOREST", Label: "Forest", Emoji: "🌲"},
+	{ID: "RAINBOW", Label: "Rainbow", Emoji: "🌈", Colors: palette("ff4d4d", "ffb84d", "ffff4d", "4dff88", "4db8ff", "b84dff")},
+	{ID: "GREEN", Label: "Green", Emoji: "🌿", Colors: palette("1e7a3c", "4ade80")},
+	{ID: "PINK_PONY", Label: "Pink Pony", Emoji: "🦄", Colors: palette("d6157e", "ff8ad4")},
+	{ID: "OCEAN_WAVES", Label: "Ocean", Emoji: "🌊", Colors: palette("0b5ea8", "38bdf8")},
+	{ID: "SUNSET", Label: "Sunset", Emoji: "🌅", Colors: palette("c2410c", "fbbf24")},
+	{ID: "FOREST", Label: "Forest", Emoji: "🌲", Colors: palette("14532d", "3f9142")},
+}
+
+func palette(values ...string) []color.NRGBA {
+	colors := make([]color.NRGBA, 0, len(values))
+	for _, value := range values {
+		var red, green, blue uint8
+		if _, err := fmt.Sscanf(value, "%02x%02x%02x", &red, &green, &blue); err != nil {
+			panic("invalid theme color: " + value)
+		}
+		colors = append(colors, color.NRGBA{R: red, G: green, B: blue, A: 0xff})
+	}
+	return colors
 }
 
 const (

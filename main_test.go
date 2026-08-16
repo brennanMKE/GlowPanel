@@ -27,6 +27,17 @@ func TestThemeMatches(t *testing.T) {
 	}
 }
 
+func TestThemesHaveVibrantPalettes(t *testing.T) {
+	if len(themes) != 6 {
+		t.Fatalf("len(themes) = %d, want 6", len(themes))
+	}
+	for _, item := range themes {
+		if len(item.Colors) < 2 {
+			t.Errorf("theme %q has %d colors, want at least 2", item.ID, len(item.Colors))
+		}
+	}
+}
+
 func TestGetStatusUsesFirstReportingDeviceBrightness(t *testing.T) {
 	cfg := &Config{Devices: []string{"first", "second"}}
 	broker := NewBroker(cfg)

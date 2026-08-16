@@ -28,7 +28,7 @@ type panelUI struct {
 	connection      *widget.Label
 	errorLabel      *widget.Label
 	devices         *fyne.Container
-	themeButtons    map[string]*widget.Button
+	themeButtons    map[string]*themeButton
 	deviceSignature string
 	activeTheme     string
 
@@ -67,7 +67,7 @@ func main() {
 
 func newPanelUI() *panelUI {
 	u := &panelUI{
-		themeButtons: make(map[string]*widget.Button, len(themes)),
+		themeButtons: make(map[string]*themeButton, len(themes)),
 	}
 
 	u.brightness = widget.NewSlider(0, 100)
@@ -118,7 +118,7 @@ func (u *panelUI) content() fyne.CanvasObject {
 	themeObjects := make([]fyne.CanvasObject, 0, len(themes))
 	for _, item := range themes {
 		item := item
-		button := widget.NewButton(item.Emoji+"\n"+item.Label, func() {
+		button := newThemeButton(item, func() {
 			u.selectTheme(item.ID)
 		})
 		u.themeButtons[item.ID] = button
@@ -271,13 +271,110 @@ func (u *panelUI) setActiveTheme(id string) {
 	}
 	u.activeTheme = id
 	for themeID, button := range u.themeButtons {
-		button.Importance = widget.MediumImportance
-		if themeID == id {
-			button.Importance = widget.HighImportance
-		}
-		button.Refresh()
+		button.SetActive(themeID == id)
 	}
 }
+
+type themeButton struct {
+	widget.BaseWidget
+	theme   Theme
+	active  bool
+	focused bool
+	onTap   func()
+}
+
+func newThemeButton(item Theme, onTap func()) *themeButton {
+	button := &themeButton{theme: item, onTap: onTap}
+	button.ExtendBaseWidget(button)
+	return button
+}
+
+func (b *themeButton) AccessibilityLabel() string { return b.theme.Label }
+func (b *themeButton) AccessibilityRole() fyne.AccessibleRole {
+	return fyne.AccessibleRoleButton
+}
+func (b *themeButton) FocusGained()   { b.focused = true; b.Refresh() }
+func (b *themeButton) FocusLost()     { b.focused = false; b.Refresh() }
+func (b *themeButton) TypedRune(rune) {}
+func (b *themeButton) TypedKey(event *fyne.KeyEvent) {
+	if event.Name == fyne.KeyReturn || event.Name == fyne.KeySpace {
+		b.Tapped(nil)
+	}
+}
+func (b *themeButton) Tapped(*fyne.PointEvent) {
+	if b.onTap != nil {
+		b.onTap()
+	}
+}
+func (b *themeButton) SetActive(active bool) {
+	if b.active == active {
+		return
+	}
+	b.active = active
+	b.Refresh()
+}
+func (b *themeButton) CreateRenderer() fyne.WidgetRenderer {
+	gradients := make([]*canvas.LinearGradient, 0, len(b.theme.Colors)-1)
+	objects := make([]fyne.CanvasObject, 0, len(b.theme.Colors)+3)
+	for index := 0; index+1 < len(b.theme.Colors); index++ {
+		gradient := canvas.NewLinearGradient(b.theme.Colors[index], b.theme.Colors[index+1], 270)
+		gradients = append(gradients, gradient)
+		objects = append(objects, gradient)
+	}
+	border := canvas.NewRectangle(color.Transparent)
+	border.CornerRadius = 12
+	objects = append(objects, border)
+	emoji := canvas.NewText(b.theme.Emoji, color.White)
+	emoji.Alignment = fyne.TextAlignCenter
+	emoji.TextSize = 34
+	label := canvas.NewText(b.theme.Label, color.White)
+	label.Alignment = fyne.TextAlignCenter
+	label.TextSize = 18
+	label.TextStyle = fyne.TextStyle{Bold: true}
+	objects = append(objects, emoji, label)
+	return &themeButtonRenderer{button: b, gradients: gradients, border: border, emoji: emoji, label: label, objects: objects}
+}
+
+type themeButtonRenderer struct {
+	button    *themeButton
+	gradients []*canvas.LinearGradient
+	border    *canvas.Rectangle
+	emoji     *canvas.Text
+	label     *canvas.Text
+	objects   []fyne.CanvasObject
+}
+
+func (r *themeButtonRenderer) Layout(size fyne.Size) {
+	segmentWidth := size.Width / float32(len(r.gradients))
+	for index, gradient := range r.gradients {
+		left := float32(index) * segmentWidth
+		width := segmentWidth
+		if index == len(r.gradients)-1 {
+			width = size.Width - left
+		}
+		gradient.Move(fyne.NewPos(left, 0))
+		gradient.Resize(fyne.NewSize(width, size.Height))
+	}
+	r.border.Resize(size)
+	emojiSize := r.emoji.MinSize()
+	r.emoji.Move(fyne.NewPos((size.Width-emojiSize.Width)/2, 8))
+	r.emoji.Resize(emojiSize)
+	labelSize := r.label.MinSize()
+	r.label.Move(fyne.NewPos((size.Width-labelSize.Width)/2, size.Height-labelSize.Height-10))
+	r.label.Resize(labelSize)
+}
+func (r *themeButtonRenderer) MinSize() fyne.Size { return fyne.NewSize(120, 88) }
+func (r *themeButtonRenderer) Refresh() {
+	r.border.StrokeColor = color.Transparent
+	r.border.StrokeWidth = 0
+	if r.button.active || r.button.focused {
+		r.border.StrokeColor = color.White
+		r.border.StrokeWidth = 4
+	}
+	r.border.Refresh()
+}
+func (r *themeButtonRenderer) Objects() []fyne.CanvasObject { return r.objects }
+func (r *themeButtonRenderer) Destroy()                     {}
 
 func themeMatches(id, reported string) bool {
 	normalize := func(value string) string {
