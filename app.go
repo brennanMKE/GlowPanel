@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Theme pairs the firmware's command name with the label and colours the UI
@@ -31,14 +34,41 @@ var themes = []Theme{
 		Color: "linear-gradient(135deg,#14532d,#3f9142)"},
 }
 
+// The panel is event driven: the strips publish their state, the broker pushes
+// it here, and this pushes a "status" event at the frontend. The two timers
+// below are the only periodic work left, and neither of them changes anything
+// on the lights.
+const (
+	// statusEmitInterval re-renders the UI so the "last seen" ages behind the
+	// per-strip chips stay honest. Purely local - no MQTT traffic at all.
+	statusEmitInterval = 60 * time.Second
+
+	// statusQueryInterval is how often the panel nudges the strips to report in
+	// unprompted. The strips already publish when they change, so this exists
+	// only to pick up one that rebooted while nobody was looking.
+	statusQueryInterval = 5 * time.Minute
+
+	// emitCoalesce collects the burst of replies to a single STATUS request -
+	// five strips answering at once - into one render.
+	emitCoalesce = 250 * time.Millisecond
+)
+
 type App struct {
 	ctx    context.Context
 	cfg    *Config
 	broker *Broker
 	err    string // startup failure, surfaced to the UI instead of a blank window
+
+	emit chan struct{} // depth 1: a pending render, coalescing further requests
+	quit chan struct{}
 }
 
-func NewApp() *App { return &App{} }
+func NewApp() *App {
+	return &App{
+		emit: make(chan struct{}, 1),
+		quit: make(chan struct{}),
+	}
+}
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -51,6 +81,9 @@ func (a *App) startup(ctx context.Context) {
 	a.cfg = cfg
 
 	a.broker = NewBroker(cfg)
+	a.broker.SetOnChange(a.notifyChanged)
+	go a.run()
+
 	if err := a.broker.Connect(); err != nil {
 		// Not fatal: paho keeps retrying in the background, so the panel can
 		// come up and recover on its own once the broker is reachable.
@@ -62,9 +95,61 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) shutdown(context.Context) {
+	close(a.quit)
 	if a.broker != nil {
 		a.broker.Disconnect()
 	}
+}
+
+// notifyChanged is called from MQTT callbacks, so it never blocks: if a render
+// is already pending it simply rides along with it.
+func (a *App) notifyChanged() {
+	select {
+	case a.emit <- struct{}{}:
+	default:
+	}
+}
+
+// run owns every recurring thing the panel does. Between events it sits idle.
+func (a *App) run() {
+	heartbeat := time.NewTicker(statusEmitInterval)
+	defer heartbeat.Stop()
+	query := time.NewTicker(statusQueryInterval)
+	defer query.Stop()
+
+	for {
+		select {
+		case <-a.quit:
+			return
+
+		case <-a.emit:
+			// Let the rest of the burst land before rendering.
+			select {
+			case <-time.After(emitCoalesce):
+			case <-a.quit:
+				return
+			}
+			select { // anything that arrived during the wait is covered by this render
+			case <-a.emit:
+			default:
+			}
+			a.emitStatus()
+
+		case <-heartbeat.C:
+			a.emitStatus()
+
+		case <-query.C:
+			// Read-only: asks the strips to talk, never tells them to change.
+			a.broker.RequestStatus()
+		}
+	}
+}
+
+func (a *App) emitStatus() {
+	if a.ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(a.ctx, "status", a.GetStatus())
 }
 
 // --- methods bound to the frontend -----------------------------------------
@@ -87,9 +172,10 @@ type Status struct {
 	AnyOn     bool          `json:"anyOn"`
 }
 
-// GetStatus is polled by the frontend. Percent is taken from the first device
-// that reported, which is right in the normal case where the whole room moves
-// together; per-device levels are still shown in the list.
+// GetStatus is what the frontend reads at startup and what the "status" event
+// carries thereafter. Percent is taken from the first device that reported,
+// which is right in the normal case where the whole room moves together;
+// per-device levels are still shown in the list.
 func (a *App) GetStatus() Status {
 	st := Status{Error: a.err}
 	if a.broker == nil {
@@ -165,8 +251,13 @@ func (a *App) SetPower(on bool) string {
 	return ""
 }
 
+// RefreshStatus is called when the panel comes back into view. It asks the
+// strips to report - a throttled, read-only query that cannot alter them - and
+// pushes what is already known so the window is never stale while the replies
+// arrive.
 func (a *App) RefreshStatus() {
 	if a.broker != nil {
 		a.broker.RequestStatus()
 	}
+	a.emitStatus()
 }

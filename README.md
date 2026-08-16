@@ -16,13 +16,26 @@ Wayland session.
 - **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
 - **Six theme buttons** with colour and emoji, sized for small hands
 - **On / Off**
-- **Live status** per strip, polled every 2s from `lights/+/state`
+- **Live status** per strip, pushed from `lights/+/state` as the strips report
 
 ## Design notes
 
 **No npm.** The frontend is plain HTML/CSS/JS. Wails injects its Go bindings on
 `window.go.main.App`, so no bundler is needed. A Vite build is the step most
 likely to fail in the Pi's ~600 MB of free RAM, so it is simply not there.
+
+**Event driven, not polled.** The strips publish to `lights/+/state` when they
+change; the Go side pushes a `status` event at the frontend only when the cached
+view actually differs, so an idle panel does no work. Two slow timers remain: a
+local re-render every 60s to keep the "last seen" ages honest, and a `STATUS`
+request every 5 minutes to pick up a strip that rebooted. Bringing the window
+back into focus also asks for a report, throttled to one message per 15s.
+
+**Background traffic never changes the lights.** The only thing GlowPanel
+publishes unprompted is `STATUS` on `lights/all/cmd` — a read-only query, sent
+with the retain flag off so nothing lingers on the broker for a device to replay
+and act on when it reconnects. Themes, brightness and power go through
+`Broker.Publish`, which is reached from a button press and nothing else.
 
 **Shares `glow.conf`.** Config comes from `~/.config/glowkitchen/glow.conf` —
 the same file the GlowKitchen `install.sh` already wrote for the cron scripts.

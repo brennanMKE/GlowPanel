@@ -20,7 +20,7 @@ const el = {
     error: $("error"),
 };
 
-// While the user is touching the slider we stop letting polled state write to
+// While the user is touching the slider we stop letting reported state write to
 // it, otherwise the value fights the finger. Cleared shortly after they stop.
 let holdUntil = 0;
 const hold = (ms = 2500) => { holdUntil = Date.now() + ms; };
@@ -107,7 +107,15 @@ function themeMatches(id, reported) {
     return b.startsWith(a) || a.startsWith(b);
 }
 
+let lastChips = "";
+
 function renderChips(devices) {
+    // Chips arrive with every status push; rebuilding identical DOM on a Pi 3B
+    // is wasted work, so skip when nothing about them changed.
+    const sig = JSON.stringify(devices.map((d) => [d.name, d.percent, d.enabled, d.lastSeenAgo < 0]));
+    if (sig === lastChips) return;
+    lastChips = sig;
+
     el.chips.innerHTML = "";
     for (const d of devices) {
         const c = document.createElement("div");
@@ -124,16 +132,10 @@ function renderChips(devices) {
     }
 }
 
-async function poll() {
-    const a = app();
-    if (!a) return;
-
-    let s;
-    try {
-        s = await a.GetStatus();
-    } catch (e) {
-        return;
-    }
+// applyStatus renders one status snapshot. It is called from the Go "status"
+// event, not from a timer.
+function applyStatus(s) {
+    if (!s) return;
 
     el.dot.classList.toggle("ok", s.connected);
     el.connText.textContent = s.connected ? "connected" : "reconnecting…";
@@ -151,6 +153,17 @@ async function poll() {
             const match = (window.__themes || []).find((t) => themeMatches(t.id, reported.theme));
             if (match && match.id !== activeTheme) setActiveTheme(match.id);
         }
+    }
+}
+
+// Used at startup and as the fallback when the Wails event runtime is missing.
+async function fetchStatus() {
+    const a = app();
+    if (!a) return;
+    try {
+        applyStatus(await a.GetStatus());
+    } catch (e) {
+        /* backend not ready; the next event or refresh covers it */
     }
 }
 
@@ -177,10 +190,23 @@ el.off.addEventListener("click", () => power(false));
     window.__themes = await a.GetThemes();
     buildThemes(window.__themes);
 
-    await poll();
-    setInterval(poll, 2000);
+    // No polling loop. The strips publish their state over MQTT, Go pushes a
+    // "status" event when something actually changed, and this renders it. Go
+    // also re-emits once a minute so the "last seen" ages do not go stale.
+    if (window.runtime && window.runtime.EventsOn) {
+        window.runtime.EventsOn("status", applyStatus);
+    } else {
+        // No event runtime (a plain browser, say). Fall back to a slow poll,
+        // still far quieter than the 2s loop this replaced.
+        setInterval(fetchStatus, 30000);
+    }
 
-    // Nudge the strips to re-report every 15s so a device that rebooted shows
-    // up again without needing the panel restarted.
-    setInterval(() => a.RefreshStatus(), 15000);
+    await fetchStatus();
+
+    // Ask the strips to report only when someone is actually looking at the
+    // panel. RefreshStatus is a read-only query and Go throttles it, so these
+    // two listeners firing together still cost one message.
+    const wake = () => { if (!document.hidden) a.RefreshStatus(); };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
 })();

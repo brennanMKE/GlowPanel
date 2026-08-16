@@ -30,13 +30,30 @@ type statusPayload struct {
 	FirmwareVersion string `json:"firmwareVersion"`
 }
 
+// statusQuery is the only payload GlowPanel ever publishes on its own, without
+// somebody pressing a button. The firmware answers it by publishing its state
+// and changes nothing about the strips: no theme, no brightness, no power. Keep
+// it that way. Anything that alters the lights goes through Publish, which is
+// only ever reached from a button press.
+const statusQuery = "STATUS"
+
+// minQueryGap throttles status requests so several triggers arriving together -
+// the window regaining focus, a reconnect, the slow background refresh - result
+// in one message on the wire instead of a burst.
+const minQueryGap = 15 * time.Second
+
 type Broker struct {
 	cfg    *Config
 	client mqtt.Client
 
-	mu    sync.RWMutex
-	state map[string]*DeviceState
-	seen  map[string]time.Time
+	mu        sync.RWMutex
+	state     map[string]*DeviceState
+	seen      map[string]time.Time
+	lastQuery time.Time
+
+	// onChange fires when something the UI renders actually changed, so the app
+	// can push an update instead of the frontend asking on a timer.
+	onChange func()
 }
 
 func NewBroker(cfg *Config) *Broker {
@@ -44,6 +61,16 @@ func NewBroker(cfg *Config) *Broker {
 		cfg:   cfg,
 		state: make(map[string]*DeviceState),
 		seen:  make(map[string]time.Time),
+	}
+}
+
+// SetOnChange registers the callback fired from MQTT goroutines when the cached
+// view of the strips changes. Set it before Connect.
+func (b *Broker) SetOnChange(fn func()) { b.onChange = fn }
+
+func (b *Broker) notify() {
+	if b.onChange != nil {
+		b.onChange()
 	}
 }
 
@@ -66,8 +93,17 @@ func (b *Broker) Connect() error {
 			return
 		}
 		// Ask everyone to report in so the UI populates immediately rather than
-		// waiting for the next spontaneous publish.
-		c.Publish("lights/all/cmd", 1, false, "STATUS")
+		// waiting for the next spontaneous publish. Forced past the throttle:
+		// a reconnect means our cached state may be stale.
+		b.query(c, true)
+		b.notify()
+	}
+
+	// The connection dot is part of what the UI renders, so a drop is a change
+	// worth pushing rather than something the frontend has to notice on a timer.
+	opts.OnConnectionLost = func(_ mqtt.Client, err error) {
+		log.Printf("mqtt connection lost: %v", err)
+		b.notify()
 	}
 
 	b.client = mqtt.NewClient(opts)
@@ -90,9 +126,7 @@ func (b *Broker) onState(_ mqtt.Client, msg mqtt.Message) {
 		return
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.state[device] = &DeviceState{
+	next := DeviceState{
 		Name:       device,
 		Brightness: p.Brightness,
 		Percent:    RawToPercent(p.Brightness),
@@ -100,12 +134,30 @@ func (b *Broker) onState(_ mqtt.Client, msg mqtt.Message) {
 		Enabled:    p.LedsEnabled,
 		Firmware:   p.FirmwareVersion,
 	}
+
+	b.mu.Lock()
+	prev, known := b.state[device]
+	// LastSeenAgo is derived in Snapshot and left zero here, so the structs
+	// compare on the fields that actually come off the wire.
+	changed := !known || *prev != next
+	b.state[device] = &next
 	b.seen[device] = time.Now()
+	b.mu.Unlock()
+
+	// A strip that re-reports the same values is not news; staying quiet here is
+	// what keeps the UI idle when nothing is happening.
+	if changed {
+		b.notify()
+	}
 }
 
 // Publish sends one command to every configured device. It reports the first
 // error but still attempts the rest, so one unreachable strip does not stop the
 // others from responding.
+//
+// This is the only path that can change what the strips are doing, and it must
+// stay that way: it is called from button presses alone, never from anything on
+// a timer. Background refreshes use RequestStatus.
 func (b *Broker) Publish(payload string, retain bool) error {
 	if b.client == nil || !b.client.IsConnected() {
 		return fmt.Errorf("not connected to broker")
@@ -122,10 +174,31 @@ func (b *Broker) Publish(payload string, retain bool) error {
 	return firstErr
 }
 
-func (b *Broker) RequestStatus() {
-	if b.client != nil && b.client.IsConnected() {
-		b.client.Publish("lights/all/cmd", 1, false, "STATUS")
+// RequestStatus asks every strip to report in. It is read-only - the payload is
+// fixed to statusQuery and can never carry a theme, a brightness or a power
+// command - and it is published without the retain flag, so nothing is left on
+// the broker for a device to replay and act on when it reconnects.
+//
+// Returns false when the request was throttled or the broker is unreachable.
+func (b *Broker) RequestStatus() bool { return b.query(b.client, false) }
+
+// query takes the client explicitly so the OnConnect handler, which runs on a
+// paho goroutine, can use the client it was handed rather than racing the field.
+func (b *Broker) query(c mqtt.Client, force bool) bool {
+	if c == nil || !c.IsConnected() {
+		return false
 	}
+
+	b.mu.Lock()
+	if !force && time.Since(b.lastQuery) < minQueryGap {
+		b.mu.Unlock()
+		return false
+	}
+	b.lastQuery = time.Now()
+	b.mu.Unlock()
+
+	c.Publish("lights/all/cmd", 1, false, statusQuery)
+	return true
 }
 
 // Snapshot returns the configured devices in config order, so the UI list does
