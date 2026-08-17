@@ -135,6 +135,12 @@ body {
     z-index: 10;
 }
 
+/* Must come after the rule above. The `hidden` attribute hides an element
+   through the UA stylesheet's [hidden] { display: none }, which any author
+   `display` declaration outranks — without this the dialog is visible from
+   page load and nothing can dismiss it, because dismissing sets `hidden`. */
+.modal-back[hidden] { display: none; }
+
 .modal {
     min-width: 320px;
     max-width: 90vw;
