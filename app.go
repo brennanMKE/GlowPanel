@@ -147,6 +147,12 @@ type Status struct {
 	Percent    int
 	HasPercent bool
 	AnyOn      bool
+
+	// Mixed says the reporting strips are not all at the same level. Percent is
+	// still the first one that answered, because the slider has to sit
+	// somewhere, but the UI must not present it as the level of the whole house
+	// when it is not. The chips carry the real per-strip numbers.
+	Mixed bool
 }
 
 func (a *App) GetStatus() Status {
@@ -166,6 +172,8 @@ func (a *App) GetStatus() Status {
 				status.Percent = device.Percent
 				status.HasPercent = true
 				foundPercent = true
+			} else if device.Percent != status.Percent {
+				status.Mixed = true
 			}
 			if device.Enabled {
 				status.AnyOn = true

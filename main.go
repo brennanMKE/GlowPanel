@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"image/color"
 	"log"
 	"strings"
 	"sync/atomic"
@@ -12,8 +11,6 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -21,12 +18,15 @@ const brightnessDebounce = 180 * time.Millisecond
 
 type panelUI struct {
 	backend *App
+	window  fyne.Window // owner for the About popup
 
-	brightness      *widget.Slider
-	brightnessLabel *widget.Label
-	power           *widget.Check
-	connection      *widget.Label
+	brightness      *glowSlider
+	brightnessLabel *canvas.Text
+	mixedNote       *canvas.Text
+	power           *powerToggle
+	connection      *connectionDot
 	errorLabel      *widget.Label
+	errorBox        *fyne.Container
 	devices         *fyne.Container
 	themeButtons    map[string]*themeButton
 	deviceSignature string
@@ -40,10 +40,14 @@ type panelUI struct {
 
 func main() {
 	fyneApp := app.NewWithID("com.brennanmke.glowpanel")
-	fyneApp.Settings().SetTheme(theme.DarkTheme())
+	fyneApp.Settings().SetTheme(&glowTheme{})
 
 	window := fyneApp.NewWindow("Glow Panel")
-	window.Resize(fyne.NewSize(900, 660))
+	window.Resize(fyne.NewSize(940, 660))
+	// The panel supplies its own even inset on all four sides; Fyne's window
+	// padding would add an uneven extra margin on top of it and stop the header
+	// rule from reaching the window edges.
+	window.SetPadded(false)
 
 	ui := newPanelUI()
 	backend := NewApp(func(status Status) {
@@ -56,6 +60,7 @@ func main() {
 		fyne.Do(func() { ui.applyStatus(status) })
 	})
 	ui.backend = backend
+	ui.window = window
 	window.SetContent(ui.content())
 	window.SetOnClosed(ui.shutdown)
 
@@ -70,23 +75,25 @@ func newPanelUI() *panelUI {
 		themeButtons: make(map[string]*themeButton, len(themes)),
 	}
 
-	u.brightness = widget.NewSlider(0, 100)
+	u.brightness = newGlowSlider(0, 100)
 	u.brightness.Step = 5
 	u.brightness.Value = 50
-	u.brightnessLabel = widget.NewLabelWithStyle("50%", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true})
-	u.power = widget.NewCheck("On", nil)
-	u.connection = widget.NewLabel("● reconnecting…")
+	u.brightnessLabel = newText("50%", 40, true, colorText)
+	u.mixedNote = newText("mixed", 12, true, colorMuted)
+	u.mixedNote.Hide()
+	u.power = newPowerToggle(nil)
+	u.connection = newConnectionDot()
 	u.errorLabel = widget.NewLabel("")
 	u.errorLabel.Wrapping = fyne.TextWrapWord
 	u.errorLabel.Hide()
-	u.devices = container.New(layout.NewRowWrapLayout())
+	u.devices = container.New(&trackingLayout{spacing: 12})
 
 	u.brightness.OnChanged = func(value float64) {
 		if u.suppressActions || u.backend == nil {
 			return
 		}
 		percent := int(value)
-		u.brightnessLabel.SetText(fmt.Sprintf("%d%%", percent))
+		u.setBrightnessText(percent)
 		u.holdUntil = time.Now().Add(2500 * time.Millisecond)
 		if u.brightnessTimer != nil {
 			u.brightnessTimer.Stop()
@@ -108,59 +115,89 @@ func newPanelUI() *panelUI {
 }
 
 func (u *panelUI) content() fyne.CanvasObject {
-	title := canvas.NewText("Glow Panel", color.White)
-	title.TextSize = 22
-	title.TextStyle = fyne.TextStyle{Bold: true}
+	return container.NewBorder(u.header(), u.footer(), nil, nil, u.body())
+}
 
-	header := container.NewBorder(nil, nil, title, nil,
-		container.NewHBox(u.power, u.connection))
+// header keeps the title alone on the left and gathers the two controls on the
+// right, so the eye reads "what this is" and "what it is doing" as two separate
+// things rather than one crowded run.
+func (u *panelUI) header() fyne.CanvasObject {
+	title := newText("Glow Panel", 24, true, colorText)
 
-	themeObjects := make([]fyne.CanvasObject, 0, len(themes))
+	about := newCircleButton("i", 15, func() {
+		if u.window != nil {
+			showAbout(u.window)
+		}
+	})
+
+	controls := container.New(&trackingLayout{spacing: 26},
+		u.power, u.connection.view, container.NewCenter(about))
+
+	row := container.NewBorder(nil, nil, container.NewCenter(title), controls)
+
+	rule := canvas.NewRectangle(colorHairline)
+	rule.SetMinSize(fyne.NewSize(1, 1))
+
+	return container.NewBorder(nil, rule, nil, nil,
+		inset(row, &insetLayout{top: 16, bottom: 16, left: outerInset, right: outerInset}))
+}
+
+func (u *panelUI) body() fyne.CanvasObject {
+	tiles := make([]fyne.CanvasObject, 0, len(themes))
 	for _, item := range themes {
 		item := item
-		button := newThemeButton(item, func() {
-			u.selectTheme(item.ID)
-		})
+		button := newThemeButton(item, func() { u.selectTheme(item.ID) })
 		u.themeButtons[item.ID] = button
-		themeObjects = append(themeObjects, button)
+		tiles = append(tiles, button)
 	}
-	themeGrid := container.NewGridWrap(fyne.NewSize(250, 92), themeObjects...)
-	themePanel := widget.NewCard("Pick a Look", "", themeGrid)
+	themeCard := newCard("PICK A LOOK",
+		container.New(&tileGrid{columns: 3, gutter: tileGutter}, tiles...))
 
-	minus := widget.NewButton("−", func() { u.nudgeBrightness(-5) })
-	plus := widget.NewButton("+", func() { u.nudgeBrightness(5) })
-	minus.Importance = widget.LowImportance
-	plus.Importance = widget.LowImportance
-	minusBox := container.NewGridWrap(fyne.NewSize(64, 64), minus)
-	plusBox := container.NewGridWrap(fyne.NewSize(64, 64), plus)
-	sliderRow := container.NewBorder(nil, nil, minusBox, plusBox, u.brightness)
-	brightnessHeader := container.NewBorder(nil, nil,
-		widget.NewLabelWithStyle("BRIGHTNESS", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		u.brightnessLabel, nil)
-	brightnessPanel := widget.NewCard("", "", container.NewVBox(brightnessHeader, sliderRow))
+	// The error line is wrapped in its own box that is hidden as a whole. Hiding
+	// only the label inside it would leave the border layout still reserving a
+	// band of empty space for a message nobody is being shown.
+	u.errorBox = inset(u.errorLabel, &insetLayout{bottom: 12})
+	u.errorBox.Hide()
 
-	middle := container.NewVBox(u.errorLabel, themePanel, brightnessPanel)
-	scroll := container.NewVScroll(middle)
-	footer := widget.NewCard("", "", u.devices)
+	// The theme card takes the slack so the window has no dead band in it: the
+	// brightness panel and the device chips stay pinned under it whatever the
+	// window height is.
+	stack := container.NewBorder(
+		u.errorBox,
+		inset(u.brightnessCard(), &insetLayout{top: 16}),
+		nil, nil, themeCard)
 
-	return container.NewBorder(
-		container.NewPadded(header),
-		container.NewPadded(footer),
-		nil,
-		nil,
-		container.NewPadded(scroll),
-	)
+	return inset(stack, &insetLayout{top: outerInset, left: outerInset, right: outerInset})
+}
+
+func (u *panelUI) brightnessCard() fyne.CanvasObject {
+	heading := container.NewBorder(nil, nil,
+		container.NewHBox(
+			container.NewCenter(newCaption("BRIGHTNESS")),
+			container.NewCenter(u.mixedNote)),
+		container.NewCenter(u.brightnessLabel))
+
+	minus := newCircleButton("−", 30, func() { u.nudgeBrightness(-5) })
+	plus := newCircleButton("+", 30, func() { u.nudgeBrightness(5) })
+	row := container.NewBorder(nil, nil,
+		container.NewCenter(minus), container.NewCenter(plus),
+		inset(u.brightness, &insetLayout{left: 12, right: 12}))
+
+	return newCard("", container.NewBorder(inset(heading, &insetLayout{bottom: 6}), nil, nil, nil, row))
+}
+
+func (u *panelUI) footer() fyne.CanvasObject {
+	return inset(withMinHeight(u.devices, chipHeight),
+		&insetLayout{top: 14, bottom: outerInset, left: outerInset, right: outerInset})
+}
+
+func (u *panelUI) setBrightnessText(percent int) {
+	u.brightnessLabel.Text = fmt.Sprintf("%d%%", percent)
+	u.brightnessLabel.Refresh()
 }
 
 func (u *panelUI) nudgeBrightness(delta float64) {
-	next := u.brightness.Value + delta
-	if next < u.brightness.Min {
-		next = u.brightness.Min
-	}
-	if next > u.brightness.Max {
-		next = u.brightness.Max
-	}
-	u.brightness.SetValue(next)
+	u.brightness.SetValue(u.brightness.Value + delta)
 }
 
 func (u *panelUI) selectTheme(id string) {
@@ -169,7 +206,7 @@ func (u *panelUI) selectTheme(id string) {
 	}
 	u.setActiveTheme(id)
 	u.suppressActions = true
-	u.power.SetChecked(true)
+	u.power.SetOn(true)
 	u.suppressActions = false
 	u.holdUntil = time.Now().Add(1200 * time.Millisecond)
 	u.runCommand(func() string { return u.backend.SetTheme(id) })
@@ -198,18 +235,20 @@ func (u *panelUI) shutdown() {
 func (u *panelUI) showError(message string) {
 	if message == "" {
 		u.errorLabel.Hide()
+		if u.errorBox != nil {
+			u.errorBox.Hide()
+		}
 		return
 	}
 	u.errorLabel.SetText(message)
 	u.errorLabel.Show()
+	if u.errorBox != nil {
+		u.errorBox.Show()
+	}
 }
 
 func (u *panelUI) applyStatus(status Status) {
-	if status.Connected {
-		u.connection.SetText("● connected")
-	} else {
-		u.connection.SetText("● reconnecting…")
-	}
+	u.connection.set(status.Connected)
 	if status.Error != "" {
 		u.showError(status.Error)
 	}
@@ -219,11 +258,16 @@ func (u *panelUI) applyStatus(status Status) {
 		return
 	}
 
+	// One number cannot honestly stand for several strips at different levels.
+	// The slider still sets everything at once, but when the strips disagree the
+	// readout is dimmed and flagged rather than quietly showing one of them.
+	u.setMixed(status.Mixed)
+
 	u.suppressActions = true
-	u.power.SetChecked(status.AnyOn)
+	u.power.SetOn(status.AnyOn)
 	if status.HasPercent {
 		u.brightness.SetValue(float64(status.Percent))
-		u.brightnessLabel.SetText(fmt.Sprintf("%d%%", status.Percent))
+		u.setBrightnessText(status.Percent)
 	}
 	u.suppressActions = false
 
@@ -239,6 +283,18 @@ func (u *panelUI) applyStatus(status Status) {
 	}
 }
 
+func (u *panelUI) setMixed(mixed bool) {
+	u.brightness.SetMixed(mixed)
+	if mixed {
+		u.brightnessLabel.Color = colorMuted
+		u.mixedNote.Show()
+	} else {
+		u.brightnessLabel.Color = colorText
+		u.mixedNote.Hide()
+	}
+	u.brightnessLabel.Refresh()
+}
+
 func (u *panelUI) renderDevices(devices []DeviceState) {
 	var signature strings.Builder
 	for _, device := range devices {
@@ -251,15 +307,15 @@ func (u *panelUI) renderDevices(devices []DeviceState) {
 
 	objects := make([]fyne.CanvasObject, 0, len(devices))
 	for _, device := range devices {
-		text := device.Name + " — no reply"
-		if device.LastSeenAgo >= 0 {
-			state := "off"
-			if device.Enabled {
-				state = fmt.Sprintf("%d%%", device.Percent)
-			}
-			text = device.Name + "  " + state
+		value, tone := "no reply", colorMuted
+		switch {
+		case device.LastSeenAgo < 0:
+		case !device.Enabled:
+			value, tone = "off", colorMuted
+		default:
+			value, tone = fmt.Sprintf("%d%%", device.Percent), colorOnline
 		}
-		objects = append(objects, widget.NewLabel(text))
+		objects = append(objects, newDeviceChip(device.Name, value, tone))
 	}
 	u.devices.Objects = objects
 	u.devices.Refresh()
@@ -275,106 +331,47 @@ func (u *panelUI) setActiveTheme(id string) {
 	}
 }
 
-type themeButton struct {
-	widget.BaseWidget
-	theme   Theme
-	active  bool
-	focused bool
-	onTap   func()
+// tileGrid lays the six looks out in even rows and columns that stretch to fill
+// whatever room the card has. Fyne's grid uses the theme padding as its gutter,
+// which left the tiles all but touching.
+type tileGrid struct {
+	columns int
+	gutter  float32
 }
 
-func newThemeButton(item Theme, onTap func()) *themeButton {
-	button := &themeButton{theme: item, onTap: onTap}
-	button.ExtendBaseWidget(button)
-	return button
+func (g *tileGrid) rows(count int) int {
+	if g.columns < 1 {
+		return count
+	}
+	return (count + g.columns - 1) / g.columns
 }
 
-func (b *themeButton) AccessibilityLabel() string { return b.theme.Label }
-func (b *themeButton) AccessibilityRole() fyne.AccessibleRole {
-	return fyne.AccessibleRoleButton
-}
-func (b *themeButton) FocusGained()   { b.focused = true; b.Refresh() }
-func (b *themeButton) FocusLost()     { b.focused = false; b.Refresh() }
-func (b *themeButton) TypedRune(rune) {}
-func (b *themeButton) TypedKey(event *fyne.KeyEvent) {
-	if event.Name == fyne.KeyReturn || event.Name == fyne.KeySpace {
-		b.Tapped(nil)
+func (g *tileGrid) MinSize(objects []fyne.CanvasObject) fyne.Size {
+	var cell fyne.Size
+	for _, o := range objects {
+		cell = cell.Max(o.MinSize())
 	}
+	rows := g.rows(len(objects))
+	return fyne.NewSize(
+		cell.Width*float32(g.columns)+g.gutter*float32(g.columns-1),
+		cell.Height*float32(rows)+g.gutter*float32(rows-1))
 }
-func (b *themeButton) Tapped(*fyne.PointEvent) {
-	if b.onTap != nil {
-		b.onTap()
-	}
-}
-func (b *themeButton) SetActive(active bool) {
-	if b.active == active {
+
+func (g *tileGrid) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	rows := g.rows(len(objects))
+	if rows == 0 || g.columns < 1 {
 		return
 	}
-	b.active = active
-	b.Refresh()
-}
-func (b *themeButton) CreateRenderer() fyne.WidgetRenderer {
-	gradients := make([]*canvas.LinearGradient, 0, len(b.theme.Colors)-1)
-	objects := make([]fyne.CanvasObject, 0, len(b.theme.Colors)+3)
-	for index := 0; index+1 < len(b.theme.Colors); index++ {
-		gradient := canvas.NewLinearGradient(b.theme.Colors[index], b.theme.Colors[index+1], 270)
-		gradients = append(gradients, gradient)
-		objects = append(objects, gradient)
+	cellWidth := (size.Width - g.gutter*float32(g.columns-1)) / float32(g.columns)
+	cellHeight := (size.Height - g.gutter*float32(rows-1)) / float32(rows)
+	for index, o := range objects {
+		column, row := index%g.columns, index/g.columns
+		o.Resize(fyne.NewSize(cellWidth, cellHeight))
+		o.Move(fyne.NewPos(
+			float32(column)*(cellWidth+g.gutter),
+			float32(row)*(cellHeight+g.gutter)))
 	}
-	border := canvas.NewRectangle(color.Transparent)
-	border.CornerRadius = 12
-	objects = append(objects, border)
-	emoji := canvas.NewText(b.theme.Emoji, color.White)
-	emoji.Alignment = fyne.TextAlignCenter
-	emoji.TextSize = 34
-	label := canvas.NewText(b.theme.Label, color.White)
-	label.Alignment = fyne.TextAlignCenter
-	label.TextSize = 18
-	label.TextStyle = fyne.TextStyle{Bold: true}
-	objects = append(objects, emoji, label)
-	return &themeButtonRenderer{button: b, gradients: gradients, border: border, emoji: emoji, label: label, objects: objects}
 }
-
-type themeButtonRenderer struct {
-	button    *themeButton
-	gradients []*canvas.LinearGradient
-	border    *canvas.Rectangle
-	emoji     *canvas.Text
-	label     *canvas.Text
-	objects   []fyne.CanvasObject
-}
-
-func (r *themeButtonRenderer) Layout(size fyne.Size) {
-	segmentWidth := size.Width / float32(len(r.gradients))
-	for index, gradient := range r.gradients {
-		left := float32(index) * segmentWidth
-		width := segmentWidth
-		if index == len(r.gradients)-1 {
-			width = size.Width - left
-		}
-		gradient.Move(fyne.NewPos(left, 0))
-		gradient.Resize(fyne.NewSize(width, size.Height))
-	}
-	r.border.Resize(size)
-	emojiSize := r.emoji.MinSize()
-	r.emoji.Move(fyne.NewPos((size.Width-emojiSize.Width)/2, 8))
-	r.emoji.Resize(emojiSize)
-	labelSize := r.label.MinSize()
-	r.label.Move(fyne.NewPos((size.Width-labelSize.Width)/2, size.Height-labelSize.Height-10))
-	r.label.Resize(labelSize)
-}
-func (r *themeButtonRenderer) MinSize() fyne.Size { return fyne.NewSize(120, 88) }
-func (r *themeButtonRenderer) Refresh() {
-	r.border.StrokeColor = color.Transparent
-	r.border.StrokeWidth = 0
-	if r.button.active || r.button.focused {
-		r.border.StrokeColor = color.White
-		r.border.StrokeWidth = 4
-	}
-	r.border.Refresh()
-}
-func (r *themeButtonRenderer) Objects() []fyne.CanvasObject { return r.objects }
-func (r *themeButtonRenderer) Destroy()                     {}
 
 func themeMatches(id, reported string) bool {
 	normalize := func(value string) string {
