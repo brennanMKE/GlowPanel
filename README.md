@@ -92,9 +92,14 @@ WKWebView, so there is no CGO/webkit dependency to wrestle with.
 ```bash
 brew install go
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
-wails build -platform darwin/arm64
+wails build -platform darwin/arm64 -ldflags "-X 'main.gitRevision=$(git rev-parse --short HEAD)'"
 mv build/bin/glowpanel.app "build/bin/Glow Panel.app"   # nicer name in Finder
 ```
+
+The `-ldflags` stamp is what puts a commit in the About view. Wails builds with
+`-trimpath` and strips the VCS information Go would otherwise embed, so without
+it the dialog can only report a version that rarely changes. Omitting the flag
+is harmless — the Revision row is simply left out.
 
 Produces a real bundle at `build/bin/Glow Panel.app` — 8.7 MB, arm64, with
 `build/appicon.png` converted to `iconfile.icns`. Drag it to `/Applications`.

@@ -25,6 +25,16 @@ const (
 //go:embed wails.json
 var wailsConfigJSON []byte
 
+// gitRevision is stamped at build time:
+//
+//	-ldflags "-X 'main.gitRevision=$(git rev-parse --short HEAD)'"
+//
+// Wails builds with -trimpath and strips the VCS information Go would otherwise
+// embed, so unlike a plain `go build` the commit cannot be recovered from the
+// binary and has to be passed in. Empty in an unstamped build, and the row is
+// left out rather than showing a blank.
+var gitRevision string
+
 type wailsConfig struct {
 	Info struct {
 		ProductVersion string `json:"productVersion"`
@@ -75,7 +85,7 @@ func buildSetting(info *debug.BuildInfo, key string) string {
 
 // aboutRows builds the display rows. Split out from the binding so the values
 // can be asserted without standing up a window.
-func aboutRows(version string, info *debug.BuildInfo) []AboutRow {
+func aboutRows(version, revision string, info *debug.BuildInfo) []AboutRow {
 	toolkit, toolkitVersion := uiToolkit(info)
 	if toolkitVersion != "" {
 		toolkit = fmt.Sprintf("%s %s", toolkit, toolkitVersion)
@@ -86,15 +96,21 @@ func aboutRows(version string, info *debug.BuildInfo) []AboutRow {
 		{Label: "Built with", Value: toolkit},
 	}
 
-	if revision := buildSetting(info, "vcs.revision"); revision != "" {
-		short := revision
-		if len(short) > 7 {
-			short = short[:7]
+	// The stamp wins; build info is the fallback for a plain `go build`, which
+	// does record VCS data.
+	if revision == "" {
+		if raw := buildSetting(info, "vcs.revision"); raw != "" {
+			revision = raw
+			if len(revision) > 7 {
+				revision = revision[:7]
+			}
+			if buildSetting(info, "vcs.modified") == "true" {
+				revision += " (modified)"
+			}
 		}
-		if buildSetting(info, "vcs.modified") == "true" {
-			short += " (modified)"
-		}
-		rows = append(rows, AboutRow{Label: "Revision", Value: short})
+	}
+	if revision != "" {
+		rows = append(rows, AboutRow{Label: "Revision", Value: revision})
 	}
 
 	rows = append(rows, AboutRow{
@@ -108,5 +124,5 @@ func aboutRows(version string, info *debug.BuildInfo) []AboutRow {
 // GetAbout is bound to the frontend.
 func (a *App) GetAbout() []AboutRow {
 	info, _ := debug.ReadBuildInfo()
-	return aboutRows(configuredVersion(wailsConfigJSON), info)
+	return aboutRows(configuredVersion(wailsConfigJSON), gitRevision, info)
 }

@@ -33,7 +33,7 @@ func TestAboutReportsLinkedToolkit(t *testing.T) {
 				{Path: "github.com/eclipse/paho.mqtt.golang", Version: "v1.5.1"},
 				{Path: tc.dep, Version: "v2.13.0"},
 			}}
-			if got := rowValue(aboutRows("0.1.0", info), "Built with"); got != tc.want {
+			if got := rowValue(aboutRows("0.1.0", "", info), "Built with"); got != tc.want {
 				t.Fatalf("Built with = %q, want %q", got, tc.want)
 			}
 		})
@@ -41,7 +41,7 @@ func TestAboutReportsLinkedToolkit(t *testing.T) {
 }
 
 func TestAboutHandlesMissingBuildInfo(t *testing.T) {
-	rows := aboutRows("0.1.0", nil)
+	rows := aboutRows("0.1.0", "", nil)
 	if got := rowValue(rows, "Built with"); got != "unknown" {
 		t.Errorf("Built with = %q, want unknown", got)
 	}
@@ -58,7 +58,7 @@ func TestAboutShowsRevision(t *testing.T) {
 			{Key: "vcs.modified", Value: "true"},
 		},
 	}
-	revision := rowValue(aboutRows("0.1.0", info), "Revision")
+	revision := rowValue(aboutRows("0.1.0", "", info), "Revision")
 	if !strings.HasPrefix(revision, "ef825a9") {
 		t.Errorf("Revision = %q, want the short commit", revision)
 	}
@@ -78,5 +78,30 @@ func TestVersionComesFromWailsConfig(t *testing.T) {
 	}
 	if got := configuredVersion([]byte("not json")); got != "dev" {
 		t.Errorf("configuredVersion(garbage) = %q, want dev", got)
+	}
+}
+
+// Wails strips the VCS build info, so the commit arrives through an ldflags
+// stamp instead. It has to win over build info, and its absence must drop the
+// row rather than show a blank one.
+func TestStampedRevisionWinsAndAbsenceDropsTheRow(t *testing.T) {
+	info := &debug.BuildInfo{
+		Deps:     []*debug.Module{{Path: toolkitWails, Version: "v2.13.0"}},
+		Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "1111111aaaa"}},
+	}
+
+	if got := rowValue(aboutRows("0.1.0", "ba6d808", info), "Revision"); got != "ba6d808" {
+		t.Errorf("Revision = %q, want the stamped value to win", got)
+	}
+
+	bare := &debug.BuildInfo{Deps: []*debug.Module{{Path: toolkitWails, Version: "v2.13.0"}}}
+	rows := aboutRows("0.1.0", "", bare)
+	if got := rowValue(rows, "Revision"); got != "" {
+		t.Errorf("Revision = %q, want the row omitted entirely", got)
+	}
+	for _, row := range rows {
+		if row.Label == "Revision" {
+			t.Error("an empty Revision row was rendered")
+		}
 	}
 }

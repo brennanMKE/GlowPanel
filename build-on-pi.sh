@@ -35,9 +35,19 @@ echo "==> Resolving modules"
 go mod tidy
 
 echo "==> Building"
+# Wails builds with -trimpath and strips the VCS information Go normally embeds,
+# so the commit the About view reports has to be passed in by hand. Empty when
+# this is not a git checkout, which drops the row rather than showing a blank.
+REVISION="$(git rev-parse --short HEAD 2>/dev/null || true)"
+if [[ -n "$REVISION" && -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    REVISION="$REVISION (modified)"
+fi
+[[ -n "$REVISION" ]] && echo "    revision: $REVISION"
+
 # webkit2_41 selects the WebKitGTK 4.1 API. Without it the build fails looking
 # for webkit2gtk-4.0, which does not exist on Debian 13.
-wails build -tags webkit2_41 -platform linux/arm64
+wails build -tags webkit2_41 -platform linux/arm64 \
+    -ldflags "-X 'main.gitRevision=$REVISION'"
 
 echo
 echo "Built: $(pwd)/build/bin/glowpanel"
