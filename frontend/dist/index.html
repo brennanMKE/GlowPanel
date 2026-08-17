@@ -19,8 +19,19 @@
                 <span class="tlabel" id="powerLabel">Off</span>
             </button>
             <div class="conn" id="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></div>
+            <button type="button" id="aboutBtn" class="info" aria-label="About Glow Panel">i</button>
         </div>
     </header>
+
+    <!-- Which build is this? The Fyne port draws the same controls, and the two
+         were mistaken for each other more than once while it was evaluated. -->
+    <div id="aboutBack" class="modal-back" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+            <h2 id="aboutTitle">About</h2>
+            <dl id="aboutRows" class="about-rows"></dl>
+            <button type="button" id="aboutClose" class="modal-close">Close</button>
+        </div>
+    </div>
 
     <div id="error" class="error" hidden></div>
 

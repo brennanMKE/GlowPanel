@@ -106,6 +106,79 @@ body {
     text-align: left;
 }
 
+/* --- about ------------------------------------------------------------- */
+
+.info {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    color: var(--muted);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 19px;
+    font-style: italic;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.info:active { background: #2a2640; }
+
+.modal-back {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 6, 14, 0.68);
+    z-index: 10;
+}
+
+.modal {
+    min-width: 320px;
+    max-width: 90vw;
+    padding: 22px 26px 20px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 16px;
+    background: var(--panel);
+}
+
+.modal h2 {
+    margin: 0 0 16px;
+    font-size: 20px;
+}
+
+.about-rows {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 18px;
+    margin: 0 0 20px;
+    font-size: 14px;
+}
+
+.about-rows dt { color: var(--muted); }
+
+.about-rows dd {
+    margin: 0;
+    font-weight: 600;
+    /* Revisions and Go versions are the kind of thing you copy out. */
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.modal-close {
+    width: 100%;
+    min-height: 44px;
+    border: none;
+    border-radius: 10px;
+    background: #2a2640;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
 .conn {
     display: flex;
     align-items: center;

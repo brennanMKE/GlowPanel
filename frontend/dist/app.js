@@ -14,6 +14,10 @@ const el = {
     themes: $("themes"),
     power: $("power"),
     powerLabel: $("powerLabel"),
+    aboutBtn: $("aboutBtn"),
+    aboutBack: $("aboutBack"),
+    aboutRows: $("aboutRows"),
+    aboutClose: $("aboutClose"),
     dot: $("dot"),
     connText: $("connText"),
     chips: $("chips"),
@@ -173,6 +177,36 @@ function applyStatus(s) {
     }
 }
 
+// --- about -----------------------------------------------------------------
+
+async function showAbout() {
+    const a = app();
+    if (!a) return;
+
+    let rows = [];
+    try {
+        rows = await a.GetAbout();
+    } catch (e) {
+        rows = [{ label: "Version", value: "unavailable" }];
+    }
+
+    el.aboutRows.innerHTML = "";
+    for (const row of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = row.label;
+        const dd = document.createElement("dd");
+        dd.textContent = row.value;
+        el.aboutRows.append(dt, dd);
+    }
+
+    el.aboutBack.hidden = false;
+    el.aboutClose.focus();
+}
+
+function hideAbout() {
+    el.aboutBack.hidden = true;
+}
+
 // Used at startup and as the fallback when the Wails event runtime is missing.
 async function fetchStatus() {
     const a = app();
@@ -190,6 +224,12 @@ el.bright.addEventListener("input", (e) => queueBrightness(Number(e.target.value
 el.up.addEventListener("click", () => nudge(5));
 el.down.addEventListener("click", () => nudge(-5));
 el.power.addEventListener("click", togglePower);
+
+el.aboutBtn.addEventListener("click", showAbout);
+el.aboutClose.addEventListener("click", hideAbout);
+// Clicking the backdrop dismisses; clicking the panel itself must not.
+el.aboutBack.addEventListener("click", (e) => { if (e.target === el.aboutBack) hideAbout(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideAbout(); });
 
 // Wails injects its bindings after the page loads, so wait for them rather
 // than assuming they are present on first script execution.
