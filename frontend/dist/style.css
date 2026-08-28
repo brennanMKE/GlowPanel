@@ -482,6 +482,204 @@ input[type="range"]::-moz-range-thumb {
 
 .stop:active { background: #632626; }
 
+/* --- the builder ------------------------------------------------------ */
+
+/* The builder needs the whole middle of the page - six rows of controls do not
+   fit alongside the brightness panel at the default 900x660. Brightness stands
+   down while composing and returns on the other two tabs, which is a fair
+   trade: nobody sets a palette and the room's brightness in the same breath. */
+body.composing .brightness-panel { display: none; }
+
+/* Labelled rows rather than stacked sections with headings of their own. The
+   builder has six things in it and the tab has about 500px to hold them, so
+   every heading that becomes an inline label buys back a row of height. */
+.builder[hidden] { display: none; }
+
+.brow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.brow:last-child { margin-bottom: 0; }
+
+.blabel {
+    flex: 0 0 74px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Explains a disabled mode or what intensity does here. Never decoration - if
+   there is nothing to say the paragraph is hidden entirely. */
+.bnote {
+    margin: -4px 0 10px 86px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.bnote[hidden] { display: none; }
+
+.modes {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 6px;
+}
+
+.mode {
+    flex: 1 1 0;
+    min-height: 42px;
+    padding: 0 4px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    background: #2a2640;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mode.on {
+    background: #4a4372;
+    border-color: #7d74c4;
+    color: var(--text);
+}
+
+/* A mode that would flatten the current palette. Still readable - the note
+   underneath says why - but plainly not pickable. */
+.mode:disabled {
+    opacity: 0.34;
+    cursor: not-allowed;
+}
+
+.swatches {
+    display: flex;
+    gap: 6px;
+}
+
+.swatch {
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    border: 3px solid transparent;
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+}
+
+/* Which swatch the palette below is about to write into. */
+.swatch.on { border-color: #fff; }
+
+.count {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.sw-controls {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.sw-controls button {
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+    background: #2a2640;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.sw-controls button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+/* Twelve across, two down. Tapping one writes it into the selected swatch,
+   which is why the grid is always on screen rather than opening on demand -
+   a picker that appears and disappears under the finger is worse on a
+   touchscreen than one that simply stays put. */
+.palette {
+    display: grid;
+    flex: 1 1 auto;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 5px;
+}
+
+.pcolor {
+    height: 32px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+    cursor: pointer;
+}
+
+.pcolor.on { border-color: #fff; }
+
+/* Ten LEDs' worth of approximation. */
+.preview {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 3px;
+}
+
+.led {
+    width: 26px;
+    height: 30px;
+    border-radius: 5px;
+    background: #14121f;
+}
+
+.approx {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.sliders input[type="range"] { height: 18px; }
+.sliders input[type="range"]::-webkit-slider-thumb { width: 32px; height: 32px; }
+.sliders input[type="range"]::-moz-range-thumb { width: 32px; height: 32px; }
+
+.sliders input:disabled {
+    opacity: 0.32;
+    cursor: not-allowed;
+}
+
+.sliders .blabel { flex: 0 0 74px; }
+
+.apply {
+    min-height: 40px;
+    margin-left: auto;
+    padding: 0 26px;
+    border: 1px solid #7d74c4;
+    border-radius: 12px;
+    background: #4a4372;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.apply[hidden] { display: none; }
+.apply:active { background: #5b5389; }
+
+/* Whichever of these claimed the auto margin first keeps it; the rest sit
+   against it rather than being pushed away from it. */
+.running:not([hidden]) + .apply,
+.running:not([hidden]) + .apply + .stop,
+.apply:not([hidden]) + .stop { margin-left: 0; }
+
 /* --- device chips ----------------------------------------------------- */
 
 footer {
@@ -529,7 +727,13 @@ footer {
     .effect { min-height: 56px; font-size: 15px; }
     .effect .em { font-size: 24px; }
     .effect-bar { margin-top: 10px; }
-    .dur-btn, .stop { min-height: 38px; }
+    .dur-btn, .stop, .apply { min-height: 38px; }
+    .swatch { width: 38px; height: 38px; }
+    .sw-controls button { width: 38px; height: 38px; }
+    .pcolor { height: 26px; }
+    .led { height: 24px; }
+    .mode { min-height: 38px; }
+    .brow { margin-bottom: 8px; }
     .pct { font-size: 28px; }
     .step { width: 60px; height: 60px; font-size: 30px; }
     main { gap: 10px; padding: 10px 14px 6px; }

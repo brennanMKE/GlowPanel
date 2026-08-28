@@ -82,6 +82,7 @@ func TestZeroSpeedIsSent(t *testing.T) {
 func TestTimeoutClamping(t *testing.T) {
 	plain, _ := findEffect("chase")
 	capped, _ := findEffect("strobe")
+	cappedMode, _ := findMode(capped.Mode)
 
 	cases := []struct {
 		name    string
@@ -94,10 +95,11 @@ func TestTimeoutClamping(t *testing.T) {
 		{"negative is treated as until stopped", plain, -5, 0},
 		{"over the firmware ceiling is clamped", plain, 99999, maxTimeoutSeconds},
 		// A strobe left running unbounded in a kitchen is the one case where
-		// "until stopped" should not be taken literally.
-		{"capped preset clamps until-stopped", capped, 0, capped.MaxSeconds},
-		{"capped preset clamps a long run", capped, 3600, capped.MaxSeconds},
-		{"capped preset allows a shorter run", capped, 15, 15},
+		// "until stopped" should not be taken literally. The cap lives on the
+		// mode, so the builder inherits it along with the preset.
+		{"capped mode clamps until-stopped", capped, 0, cappedMode.MaxSeconds},
+		{"capped mode clamps a long run", capped, 3600, cappedMode.MaxSeconds},
+		{"capped mode allows a shorter run", capped, 15, 15},
 	}
 
 	for _, tc := range cases {
@@ -155,5 +157,143 @@ func TestAcceptedVariants(t *testing.T) {
 	}
 	if got := decodeBody(t, payload).Mode; got != "CHASE" {
 		t.Errorf("mode %q, want CHASE", got)
+	}
+}
+
+// The builder greys out the three modes that force saturation and value to
+// full, so the rule that decides which colours are safe has to be right.
+func TestIsVivid(t *testing.T) {
+	vivid := []string{"#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF6600", "#00FFFF", "ff00ff"}
+	flat := []string{"#FFFFFF", "#FFB6C1", "#FFD9A0", "#800000", "#C9B6FF", "#101010"}
+
+	for _, c := range vivid {
+		if !isVivid(c) {
+			t.Errorf("%s should survive Blend/Flicker/Loop unchanged", c)
+		}
+	}
+	for _, c := range flat {
+		if isVivid(c) {
+			t.Errorf("%s would be flattened, should not be reported as vivid", c)
+		}
+	}
+	if isVivid("#F00") || isVivid("nonsense") || isVivid("") {
+		t.Error("a malformed colour must not be reported as vivid")
+	}
+
+	if !AllVivid([]string{"#FF0000", "#0000FF"}) {
+		t.Error("AllVivid rejected an all-vivid palette")
+	}
+	if AllVivid([]string{"#FF0000", "#FFB6C1"}) {
+		t.Error("AllVivid accepted a palette with a pastel in it")
+	}
+}
+
+// The palette's own vividness flags are what the UI gates on, so they have to
+// agree with the rule rather than with whoever typed the list.
+func TestPaletteFlags(t *testing.T) {
+	vivid := 0
+	for _, c := range palette {
+		if c.Vivid != isVivid(c.Hex) {
+			t.Errorf("%s (%s): Vivid is %v", c.Name, c.Hex, c.Vivid)
+		}
+		if c.Vivid {
+			vivid++
+		}
+		if !hexColorRe.MatchString(c.Hex) {
+			t.Errorf("%s: %q is not #RRGGBB", c.Name, c.Hex)
+		}
+	}
+	// A palette of nothing but vivid colours would make the Blend/Flicker/Loop
+	// gating dead code; one of nothing but pastels would make those three modes
+	// unreachable. Both halves have to be there.
+	if vivid == 0 || vivid == len(palette) {
+		t.Errorf("%d of %d palette colours are vivid", vivid, len(palette))
+	}
+}
+
+// Every mode the picker offers has to be one the payload builder accepts, or a
+// button in the UI is a button that silently does nothing.
+func TestModesAreUsable(t *testing.T) {
+	seen := map[string]bool{}
+	for _, m := range modes {
+		if seen[m.ID] {
+			t.Errorf("duplicate mode %q", m.ID)
+		}
+		seen[m.ID] = true
+
+		if _, err := buildEffectPayload(Effect{
+			Label: m.Label, Mode: m.ID, Colors: []string{"#FF0000"},
+			Speed: 128, Intensity: 128,
+		}, 60); err != nil {
+			t.Errorf("%s: %v", m.ID, err)
+		}
+		if m.UsesIntensity && m.Means == "" {
+			t.Errorf("%s uses intensity but does not say what it does", m.ID)
+		}
+	}
+	if len(modes) != 9 {
+		t.Errorf("got %d modes, want the firmware's 9", len(modes))
+	}
+
+	// Every preset's mode must be one the builder knows about, since the mode
+	// now carries the timeout cap and the intensity rules.
+	for _, e := range effects {
+		if _, ok := findMode(e.Mode); !ok {
+			t.Errorf("preset %s uses unknown mode %q", e.ID, e.Mode)
+		}
+	}
+}
+
+// The slider's top scales with the shortest strip, because a speed that reads
+// as movement on 128 LEDs is a flash on 10.
+func TestSpeedCeiling(t *testing.T) {
+	cases := []struct{ leds, want int }{
+		{0, 255},   // nothing has reported; do not clamp on a guess
+		{10, 140},  // the dev board
+		{5, 140},   // shorter than the dev board, same floor
+		{240, 255}, // what the renderers were tuned for
+		{400, 255},
+	}
+	for _, tc := range cases {
+		if got := speedCeiling(tc.leds); got != tc.want {
+			t.Errorf("speedCeiling(%d) = %d, want %d", tc.leds, got, tc.want)
+		}
+	}
+	// In between, longer strips get a higher ceiling than shorter ones.
+	if speedCeiling(60) <= speedCeiling(20) || speedCeiling(60) >= speedCeiling(200) {
+		t.Error("the ceiling should rise with strip length")
+	}
+}
+
+// SetCustomEffect repeats the 1-8 check rather than trusting the swatch row:
+// nine colours are rejected outright by the firmware, silently.
+func TestSetCustomEffectValidates(t *testing.T) {
+	a := NewApp()
+	a.cfg = &Config{Devices: []string{"tv"}}
+	a.broker = NewBroker(a.cfg)
+
+	nine := make([]string, 9)
+	for i := range nine {
+		nine[i] = "#FF0000"
+	}
+
+	cases := map[string]struct {
+		mode   string
+		colors []string
+	}{
+		"nine colours": {"SPARKLE", nine},
+		"no colours":   {"SPARKLE", nil},
+		"unknown mode": {"DISCO", []string{"#FF0000"}},
+		"bad colour":   {"SPARKLE", []string{"#F00"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Not connected, so "not connected to broker" would mean it got
+			// past validation to the publish - which is itself a failure.
+			msg := a.SetCustomEffect(tc.mode, tc.colors, 128, 128, 60)
+			if msg == "" || msg == "not connected to broker" {
+				t.Errorf("accepted, returned %q", msg)
+			}
+		})
 	}
 }

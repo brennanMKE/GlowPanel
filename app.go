@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -199,6 +200,11 @@ type Status struct {
 	// EffectRemaining is -1 for an effect with no timeout.
 	EffectMode      string `json:"effectMode"`
 	EffectRemaining int    `json:"effectRemaining"`
+
+	// SpeedMax is the top of the useful speed range for the shortest strip that
+	// has reported, so the builder's slider does not offer a third that only
+	// produces a flash. 255 until something reports.
+	SpeedMax int `json:"speedMax"`
 }
 
 // GetStatus is what the frontend reads at startup and what the "status" event
@@ -213,6 +219,7 @@ func (a *App) GetStatus() Status {
 	st.Connected = a.broker.Connected()
 	st.Devices = a.broker.Snapshot()
 	st.EffectMode, st.EffectRemaining = a.broker.RunningEffect()
+	st.SpeedMax = speedCeiling(a.broker.MinNumLeds())
 
 	for _, d := range st.Devices {
 		if d.LastSeenAgo >= 0 {
@@ -302,6 +309,48 @@ func (a *App) SetPower(on bool) string {
 // --- effects ---------------------------------------------------------------
 
 func (a *App) GetEffects() []Effect { return effects }
+
+func (a *App) GetModes() []Mode { return modes }
+
+func (a *App) GetPalette() []PaletteColor { return palette }
+
+// SetCustomEffect publishes an effect composed in the builder rather than one
+// of the presets. It takes the same path as SetEffect - same validation, same
+// unretained broadcast - because the device is equally silent about rejecting
+// either one.
+//
+// The 1-8 colour check is repeated here rather than trusted to the UI: nine
+// colours are rejected outright by the firmware, not truncated, and a rejected
+// payload produces no reply at all. A bug in the swatch row has to surface as
+// an error string in the panel, because the alternative is lights that simply
+// do not change and nothing anywhere saying why.
+func (a *App) SetCustomEffect(mode string, colors []string, speed, intensity, seconds int) string {
+	if a.broker == nil {
+		return "not ready"
+	}
+	m, ok := findMode(strings.ToUpper(strings.TrimSpace(mode)))
+	if !ok {
+		return "unknown mode: " + mode
+	}
+
+	payload, err := buildEffectPayload(Effect{
+		Label:     m.Label,
+		Mode:      m.ID,
+		Colors:    colors,
+		Speed:     speed,
+		Intensity: intensity,
+	}, seconds)
+	if err != nil {
+		return err.Error()
+	}
+	if err := a.broker.Publish(payload, false); err != nil {
+		return err.Error()
+	}
+	log.Printf("custom effect -> %s, %d colour(s), speed %d, intensity %d, %ds",
+		m.ID, len(colors), speed, intensity, seconds)
+	a.confirmEffect()
+	return ""
+}
 
 func (a *App) GetDurations() []Duration { return durations }
 

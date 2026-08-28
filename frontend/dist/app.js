@@ -16,6 +16,23 @@ const el = {
     pickerTitle: $("pickerTitle"),
     tabLooks: $("tabLooks"),
     tabEffects: $("tabEffects"),
+    tabCustom: $("tabCustom"),
+    builder: $("builder"),
+    modes: $("modes"),
+    modeNote: $("modeNote"),
+    meansNote: $("meansNote"),
+    swatches: $("swatches"),
+    swatchCount: $("swatchCount"),
+    swLeft: $("swLeft"),
+    swRight: $("swRight"),
+    swRemove: $("swRemove"),
+    swAdd: $("swAdd"),
+    palette: $("palette"),
+    preview: $("preview"),
+    speed: $("speed"),
+    intensity: $("intensity"),
+    intensityLabel: $("intensityLabel"),
+    apply: $("apply"),
     effectBar: $("effectBar"),
     durations: $("durations"),
     running: $("running"),
@@ -44,8 +61,23 @@ let activeTheme = null;
 let activeEffect = null;
 let lightsOn = false;
 
-// Which grid the picker panel is showing: "looks" or "effects".
+// Which view the picker panel is showing: "looks", "effects" or "custom".
 let tab = "looks";
+
+// The effect being composed on the Custom tab. Colours are always drawn from
+// the palette, so their vividness can be looked up rather than recomputed.
+const custom = {
+    mode: "SPARKLE",
+    colors: ["#FF0000"],
+    selected: 0,
+    speed: 128,
+    intensity: 180,
+};
+
+// The top of the useful speed range for the shortest strip that has reported.
+// The renderers were tuned for ~240 LEDs, so on a 10-LED board the top of a raw
+// 0-255 slider is all flash and no movement.
+let speedMax = 255;
 
 // How long the next effect should run, in seconds. 0 is "until stopped".
 let durationSeconds = 300;
@@ -129,16 +161,27 @@ function pickDuration(seconds) {
     }
 }
 
+const TAB_TITLES = { looks: "Pick a Look", effects: "Effects", custom: "Custom" };
+
 function setTab(next) {
     tab = next;
-    const effects = next === "effects";
-    el.themes.hidden = effects;
-    el.effects.hidden = !effects;
-    el.pickerTitle.textContent = effects ? "Effects" : "Pick a Look";
-    el.tabLooks.classList.toggle("on", !effects);
-    el.tabEffects.classList.toggle("on", effects);
-    el.tabLooks.setAttribute("aria-selected", effects ? "false" : "true");
-    el.tabEffects.setAttribute("aria-selected", effects ? "true" : "false");
+    el.themes.hidden = next !== "looks";
+    el.effects.hidden = next !== "effects";
+    el.builder.hidden = next !== "custom";
+    el.pickerTitle.textContent = TAB_TITLES[next];
+
+    for (const [name, btn] of [["looks", el.tabLooks], ["effects", el.tabEffects],
+                               ["custom", el.tabCustom]]) {
+        btn.classList.toggle("on", name === next);
+        btn.setAttribute("aria-selected", name === next ? "true" : "false");
+    }
+
+    // The builder needs the whole middle of the page, so the brightness panel
+    // stands down while it is up. It comes back on the other two tabs.
+    document.body.classList.toggle("composing", next === "custom");
+    // The speed ceiling may have arrived from a status push while the builder
+    // was hidden, so redraw rather than trusting whatever it last rendered.
+    if (next === "custom") renderBuilder();
     renderEffectBar(effectMode, remainingSeconds());
 }
 
@@ -238,12 +281,16 @@ function remainingSeconds() {
 // stoppable after switching back to Looks.
 function renderEffectBar(mode, remaining) {
     const running = !!mode;
-    const onEffectsTab = tab === "effects";
+    // Both effect tabs need the duration row; only the builder needs Apply,
+    // since a preset button is its own apply.
+    const composing = tab === "custom";
+    const onControlsTab = tab === "effects" || composing;
 
-    el.effectBar.hidden = !running && !onEffectsTab;
-    el.durations.hidden = !onEffectsTab;
+    el.effectBar.hidden = !running && !onControlsTab;
+    el.durations.hidden = !onControlsTab;
     el.running.hidden = !running;
-    el.stop.hidden = !running && !onEffectsTab;
+    el.apply.hidden = !composing;
+    el.stop.hidden = !running && !onControlsTab;
 
     if (!running) {
         stopCountdown();
@@ -268,6 +315,246 @@ function stopCountdown() {
     if (countdownTimer === null) return;
     clearInterval(countdownTimer);
     countdownTimer = null;
+}
+
+// --- the builder -----------------------------------------------------------
+
+function currentMode() {
+    return (window.__modes || []).find((m) => m.id === custom.mode) || null;
+}
+
+// Colours only ever come from the palette, so vividness is a lookup rather than
+// a second implementation of the rule the Go side already applies.
+function isVivid(hex) {
+    const p = (window.__palette || []).find((c) => c.hex.toLowerCase() === hex.toLowerCase());
+    return p ? p.vivid : false;
+}
+
+const allVivid = () => custom.colors.every(isVivid);
+
+function buildModes(list) {
+    el.modes.innerHTML = "";
+    for (const m of list) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mode";
+        b.dataset.id = m.id;
+        b.textContent = m.label;
+        b.addEventListener("click", () => pickMode(m.id));
+        el.modes.appendChild(b);
+    }
+}
+
+function buildPalette(list) {
+    el.palette.innerHTML = "";
+    for (const c of list) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "pcolor";
+        b.dataset.hex = c.hex;
+        b.style.background = c.hex;
+        b.title = c.vivid ? c.name : `${c.name} — not available in Blend, Flicker or Loop`;
+        b.setAttribute("aria-label", c.name);
+        b.addEventListener("click", () => setSwatch(c.hex));
+        el.palette.appendChild(b);
+    }
+}
+
+function pickMode(id) {
+    custom.mode = id;
+    renderBuilder();
+}
+
+function setSwatch(hex) {
+    custom.colors[custom.selected] = hex;
+    // A pastel can make the selected mode unavailable, which renderBuilder
+    // resolves rather than leaving a disabled mode selected.
+    renderBuilder();
+}
+
+function selectSwatch(i) {
+    custom.selected = i;
+    renderBuilder();
+}
+
+function addSwatch() {
+    // Nine colours are rejected outright by the firmware, not truncated, and
+    // the rejection is silent - so the ceiling is enforced here rather than
+    // discovered as lights that do not change.
+    if (custom.colors.length >= 8) return;
+    custom.colors.push(custom.colors[custom.colors.length - 1]);
+    custom.selected = custom.colors.length - 1;
+    renderBuilder();
+}
+
+function removeSwatch() {
+    if (custom.colors.length <= 1) return;
+    custom.colors.splice(custom.selected, 1);
+    custom.selected = Math.min(custom.selected, custom.colors.length - 1);
+    renderBuilder();
+}
+
+// Order is the animation in six of the nine modes, so moving a swatch is real
+// work rather than tidying.
+function moveSwatch(delta) {
+    const from = custom.selected;
+    const to = from + delta;
+    if (to < 0 || to >= custom.colors.length) return;
+    const [c] = custom.colors.splice(from, 1);
+    custom.colors.splice(to, 0, c);
+    custom.selected = to;
+    renderBuilder();
+}
+
+function renderModes() {
+    const vivid = allVivid();
+    let blocked = null;
+
+    for (const b of el.modes.children) {
+        const m = (window.__modes || []).find((x) => x.id === b.dataset.id);
+        if (!m) continue;
+        // The three modes that force saturation and value to full would render
+        // a pastel as something the user did not pick.
+        const off = !vivid && !m.keepsColors;
+        b.disabled = off;
+        if (off && m.id === custom.mode) blocked = m;
+        b.classList.toggle("on", m.id === custom.mode);
+    }
+
+    if (blocked) {
+        // Leaving a disabled mode selected would mean an Apply button that
+        // sends something the picker is telling the user not to send.
+        custom.mode = "SPARKLE";
+        for (const b of el.modes.children) {
+            b.classList.toggle("on", b.dataset.id === custom.mode);
+        }
+        el.modeNote.textContent =
+            `${blocked.label} renders every colour fully saturated, so it is off while ` +
+            `the palette has a pastel in it. Switched to Sparkle.`;
+        el.modeNote.hidden = false;
+        return;
+    }
+
+    if (!vivid) {
+        el.modeNote.textContent =
+            "Blend, Flicker and Loop force every colour to full saturation, so they are " +
+            "off while the palette has a pastel in it.";
+        el.modeNote.hidden = false;
+    } else {
+        el.modeNote.hidden = true;
+    }
+}
+
+function renderSwatches() {
+    el.swatches.innerHTML = "";
+    custom.colors.forEach((hex, i) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "swatch" + (i === custom.selected ? " on" : "");
+        b.style.background = hex;
+        b.setAttribute("aria-label", `Colour ${i + 1} of ${custom.colors.length}`);
+        b.addEventListener("click", () => selectSwatch(i));
+        el.swatches.appendChild(b);
+    });
+
+    el.swatchCount.textContent = `${custom.colors.length}/8`;
+    el.swAdd.disabled = custom.colors.length >= 8;
+    el.swRemove.disabled = custom.colors.length <= 1;
+    el.swLeft.disabled = custom.selected === 0;
+    el.swRight.disabled = custom.selected >= custom.colors.length - 1;
+
+    for (const b of el.palette.children) {
+        b.classList.toggle("on", b.dataset.hex === custom.colors[custom.selected]);
+    }
+}
+
+function hexToRgb(hex) {
+    const h = hex.replace("#", "");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+const rgbToCss = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+// A gradient across the palette, for the modes that blend between hues rather
+// than showing colours one at a time.
+function gradientAt(t) {
+    const n = custom.colors.length;
+    if (n === 1) return hexToRgb(custom.colors[0]);
+    const pos = t * (n - 1);
+    const i = Math.min(Math.floor(pos), n - 2);
+    const f = pos - i;
+    const a = hexToRgb(custom.colors[i]), b = hexToRgb(custom.colors[i + 1]);
+    return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
+}
+
+// One frame of what the strip would do. It is an approximation twice over: a
+// still image of something moving, and — per the hue warping in hsv2rgb_rainbow
+// — brighter and cooler than the strip actually renders.
+const PREVIEW_LEDS = 10;
+
+function renderPreview() {
+    const m = currentMode();
+    const n = custom.colors.length;
+
+    el.preview.innerHTML = "";
+    for (let i = 0; i < PREVIEW_LEDS; i++) {
+        const led = document.createElement("div");
+        led.className = "led";
+
+        if (m && m.showsWholePalette) {
+            // SPARKLE lays the palette out by LED position, so this one is a
+            // fair likeness rather than a single frame of a moving thing.
+            led.style.background = custom.colors[i % n];
+        } else if (m && !m.keepsColors) {
+            led.style.background = rgbToCss(gradientAt(i / (PREVIEW_LEDS - 1)));
+        } else if (m && m.id === "WIPE") {
+            // Two at once: what has been filled, and what it is replacing.
+            led.style.background = i < 6 ? custom.colors[0] : custom.colors[1 % n];
+        } else {
+            led.style.background = custom.colors[0];
+        }
+        el.preview.appendChild(led);
+    }
+}
+
+function renderSliders() {
+    const m = currentMode();
+
+    el.speed.max = speedMax;
+    if (custom.speed > speedMax) custom.speed = speedMax;
+    el.speed.value = custom.speed;
+
+    // Two modes hard-code their own value and ignore the field entirely.
+    const uses = !m || m.usesIntensity;
+    el.intensity.disabled = !uses;
+    el.intensity.value = custom.intensity;
+    el.intensityLabel.style.opacity = uses ? "" : "0.4";
+
+    if (m && uses && m.means) {
+        el.meansNote.textContent = `Intensity here is ${m.means}.`;
+        el.meansNote.hidden = false;
+    } else if (m && !uses) {
+        el.meansNote.textContent = `${m.label} sets its own intensity and ignores the slider.`;
+        el.meansNote.hidden = false;
+    } else {
+        el.meansNote.hidden = true;
+    }
+}
+
+function renderBuilder() {
+    renderModes();
+    renderSwatches();
+    renderPreview();
+    renderSliders();
+}
+
+async function applyCustom() {
+    const a = app();
+    if (!a) return;
+    setPowerUI(true);
+    hold(1200);
+    showError(await a.SetCustomEffect(
+        custom.mode, custom.colors, custom.speed, custom.intensity, durationSeconds));
 }
 
 // The firmware reports themes as display names ("Pink Pony Club", "Ocean
@@ -316,6 +603,12 @@ function applyStatus(s) {
 
     renderChips(s.devices || []);
     applyEffect(s.effectMode || "", typeof s.effectRemaining === "number" ? s.effectRemaining : -1);
+
+    // The shortest strip that has reported sets the top of the speed slider.
+    if (typeof s.speedMax === "number" && s.speedMax > 0 && s.speedMax !== speedMax) {
+        speedMax = s.speedMax;
+        if (!el.builder.hidden) renderSliders();
+    }
 
     if (!holding()) {
         setPowerUI(!!s.anyOn);
@@ -404,7 +697,21 @@ el.power.addEventListener("click", togglePower);
 
 el.tabLooks.addEventListener("click", () => setTab("looks"));
 el.tabEffects.addEventListener("click", () => setTab("effects"));
+el.tabCustom.addEventListener("click", () => setTab("custom"));
 el.stop.addEventListener("click", stopEffect);
+el.apply.addEventListener("click", applyCustom);
+
+el.swAdd.addEventListener("click", addSwatch);
+el.swRemove.addEventListener("click", removeSwatch);
+el.swLeft.addEventListener("click", () => moveSwatch(-1));
+el.swRight.addEventListener("click", () => moveSwatch(1));
+
+// The sliders only redraw the preview; nothing reaches the strips until Apply.
+el.speed.addEventListener("input", (e) => { custom.speed = Number(e.target.value); });
+el.intensity.addEventListener("input", (e) => {
+    custom.intensity = Number(e.target.value);
+    renderPreview();
+});
 
 el.aboutBtn.addEventListener("click", showAbout);
 el.aboutClose.addEventListener("click", hideAbout);
@@ -431,6 +738,12 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideAbout(
     buildEffects(window.__effects);
     buildDurations(await a.GetDurations());
     pickDuration(await a.GetDefaultDuration());
+
+    window.__modes = await a.GetModes();
+    window.__palette = await a.GetPalette();
+    buildModes(window.__modes);
+    buildPalette(window.__palette);
+    renderBuilder();
 
     // No polling loop. The strips publish their state over MQTT, Go pushes a
     // "status" event when something actually changed, and this renders it. Go

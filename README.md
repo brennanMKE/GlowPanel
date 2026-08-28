@@ -14,8 +14,10 @@ Wayland session — and on macOS as a native `.app`.
 ## What it does
 
 - **Six theme buttons** with colour and emoji, sized for small hands
-- **Nine effect presets** behind a Looks/Effects toggle, with a duration and a
-  Stop button
+- **Nine effect presets** behind a Looks/Effects/Custom switch, with a duration
+  and a Stop button
+- **A custom effect builder** — any of the nine modes, one to eight colours from
+  a built-in palette, and the speed and intensity sliders
 - **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
 - **On / Off** as a switch in the header, next to the connection status
 - **Live status** per strip, pushed from `lights/+/state` as the strips report
@@ -65,7 +67,60 @@ object is absent whenever the theme is not `Custom`, which means no effect
 rather than an error.
 
 **Strobe is capped at 60 seconds** even when "Until stopped" is selected. The
-other eight presets take the duration as given.
+cap is on the mode rather than the preset, so the builder inherits it.
+
+## The custom builder
+
+![The Custom tab: a mode row with Loop, Blend and Flicker greyed out, four colour swatches, a 24-colour palette, a preview strip, speed and intensity sliders, and Apply beside a running-effect banner](GlowPanelCustom.png)
+
+The presets are nine points in a space the firmware opens up entirely: any of
+the nine modes, any one to eight colours, any speed and intensity. The Custom
+tab is that space, and it takes the whole middle of the page — six rows of
+controls do not fit alongside the brightness panel at 900x660, so brightness
+stands down while composing and comes back on the other two tabs.
+
+Four rules are enforced in the UI because the firmware will not tell anyone they
+were broken:
+
+**One to eight colours, and nine is a rejection rather than a truncation.** The
+whole command is discarded, the strip carries on doing exactly what it was
+doing, and no MQTT reply of any kind is published. `+` stops at eight, `✕` stops
+at one, and `SetCustomEffect` re-checks in Go — so a bug in the swatch row
+surfaces as an error string rather than as lights that quietly do not change.
+
+**Blend, Flicker and Loop are greyed out while the palette holds a pastel.**
+Those three force saturation and value to full — Loop takes saturation from
+`intensity` instead — so `#FFB6C1` comes out as vivid pink rather than the soft
+pink in the picker. Rather than letting the firmware flatten a palette without
+saying so, the modes go unavailable with a line explaining why. The palette's
+top row is fully saturated and always safe; the bottom row is the pastels that
+trigger this.
+
+**Intensity means something different in every mode**, so the slider says which
+— the width of a run in Chase and Scan, the depth of the breath in Pulse, how
+much of each flash is on in Strobe. Blend and Flicker hard-code their own value
+and ignore the field, so the slider is disabled for those two and only those.
+
+**Speed is scaled to the shortest strip that has reported.** The renderers were
+tuned for roughly 240 LEDs; on the 10-LED dev board anything much above 140
+crosses the whole strip in a fraction of a second and reads as a flash. Since
+effects are broadcast to every strip at once, the shortest one sets the ceiling.
+
+Order matters in six of the nine modes — the palette is the animation's
+sequence, not just its ingredients — so swatches can be moved with ◀ and ▶.
+Sparkle is the exception: it lays colours out by LED position, which is why it
+is the one mode whose preview is a fair likeness rather than a single frame of
+something moving. The preview is an approximation twice over, and says so: the
+device converts through HSV and back with FastLED's `hsv2rgb_rainbow()`, which
+warps hue deliberately, so the strip runs warmer and dimmer than the swatches.
+
+**Colours come from a built-in palette, not `<input type="color">`.** That input
+hands back `#rrggbb` with no conversion, which is tempting, but it delegates the
+interaction to the OS: a desktop colour chooser dialog, on a Pi's small
+touchscreen, under labwc, with no keyboard. A fixed grid of large targets is the
+thing that actually works on the hardware this runs on. The cost is that an
+arbitrary hex value is out of reach; saving palettes by name is the obvious next
+step and is not built yet.
 
 See `docs/glowpanel_effects_integration.md` in the GlowKitchen repo for the
 command reference and the firmware-side details.

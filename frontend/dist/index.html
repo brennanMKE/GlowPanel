@@ -45,16 +45,66 @@
         <section class="panel">
             <div class="panel-head picker-head">
                 <h2 id="pickerTitle">Pick a Look</h2>
-                <div class="seg" role="tablist" aria-label="Looks or effects">
+                <div class="seg" role="tablist" aria-label="Looks, effects or custom">
                     <button type="button" class="seg-btn on" id="tabLooks"
                             role="tab" aria-selected="true">Looks</button>
                     <button type="button" class="seg-btn" id="tabEffects"
                             role="tab" aria-selected="false">Effects</button>
+                    <button type="button" class="seg-btn" id="tabCustom"
+                            role="tab" aria-selected="false">Custom</button>
                 </div>
             </div>
 
             <div class="themes" id="themes"></div>
             <div class="themes effects" id="effects" hidden></div>
+
+            <!-- The builder. Nine modes, one to eight colours, and the two
+                 sliders — laid out as labelled rows rather than stacked
+                 sections, which is what lets the whole thing fit without the
+                 middle of the page starting to scroll. -->
+            <div class="builder" id="builder" hidden>
+                <div class="brow">
+                    <span class="blabel">Mode</span>
+                    <div class="modes" id="modes"></div>
+                </div>
+
+                <!-- Why a mode is unavailable, rather than a button that just
+                     refuses to work. Only ever about the three modes that
+                     discard saturation. -->
+                <p class="bnote" id="modeNote" hidden></p>
+
+                <div class="brow">
+                    <span class="blabel">Colours</span>
+                    <div class="swatches" id="swatches"></div>
+                    <span class="count" id="swatchCount">1/8</span>
+                    <div class="sw-controls">
+                        <button type="button" id="swLeft" aria-label="Move colour earlier">◀</button>
+                        <button type="button" id="swRight" aria-label="Move colour later">▶</button>
+                        <button type="button" id="swRemove" aria-label="Remove colour">✕</button>
+                        <button type="button" id="swAdd" aria-label="Add colour">+</button>
+                    </div>
+                </div>
+
+                <div class="brow">
+                    <span class="blabel">Palette</span>
+                    <div class="palette" id="palette"></div>
+                </div>
+
+                <div class="brow">
+                    <span class="blabel">Preview</span>
+                    <div class="preview" id="preview"></div>
+                    <span class="approx">approximate — the strip runs warmer and dimmer</span>
+                </div>
+
+                <div class="brow sliders">
+                    <label class="blabel" for="speed">Speed</label>
+                    <input type="range" id="speed" min="0" max="255" step="5" value="128">
+                    <label class="blabel" for="intensity" id="intensityLabel">Intensity</label>
+                    <input type="range" id="intensity" min="0" max="255" step="5" value="180">
+                </div>
+
+                <p class="bnote" id="meansNote" hidden></p>
+            </div>
 
             <!-- Shown on the Effects tab, and also on the Looks tab whenever
                  something is running, so the Stop button is never more than one
@@ -66,11 +116,12 @@
                 <div class="running" id="running" hidden>
                     <span class="pip"></span><span id="runningText"></span>
                 </div>
+                <button type="button" class="apply" id="apply" hidden>Apply</button>
                 <button type="button" class="stop" id="stop">Stop</button>
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel brightness-panel">
             <div class="panel-head">
                 <h2>Brightness</h2>
                 <output id="pct" class="pct">—</output>

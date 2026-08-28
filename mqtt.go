@@ -269,6 +269,25 @@ func (b *Broker) query(c mqtt.Client, force bool) bool {
 	return true
 }
 
+// MinNumLeds returns the shortest strip that has reported a length, or 0 when
+// none has. Effects are broadcast to every strip at once, so a speed that suits
+// a 128-LED run may be a blur on a 10-LED one; the shortest is the constraint.
+func (b *Broker) MinNumLeds() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	min := 0
+	for _, s := range b.state {
+		if s.NumLeds <= 0 {
+			continue
+		}
+		if min == 0 || s.NumLeds < min {
+			min = s.NumLeds
+		}
+	}
+	return min
+}
+
 // Snapshot returns the configured devices in config order, so the UI list does
 // not reshuffle as messages arrive.
 func (b *Broker) Snapshot() []DeviceState {
