@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -70,8 +71,15 @@ func TestAboutShowsRevision(t *testing.T) {
 // The version comes from wails.json so the dialog and the bundle metadata
 // cannot drift apart.
 func TestVersionComesFromWailsConfig(t *testing.T) {
-	if got := configuredVersion(wailsConfigJSON); got != "0.1.0" {
-		t.Errorf("configuredVersion(embedded) = %q, want 0.1.0", got)
+	// Deliberately not pinned to a literal: the point is that the dialog reads
+	// the real wails.json, not that the project is at any particular version.
+	// Asserting the number itself just fails every release.
+	got := configuredVersion(wailsConfigJSON)
+	if got == "dev" {
+		t.Error("embedded wails.json did not parse; the dialog would show the fallback")
+	}
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(got) {
+		t.Errorf("configuredVersion(embedded) = %q, want a semver from wails.json", got)
 	}
 	if got := configuredVersion([]byte(`{"info":{"productVersion":"9.9.9"}}`)); got != "9.9.9" {
 		t.Errorf("configuredVersion = %q, want 9.9.9", got)

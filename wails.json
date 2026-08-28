@@ -8,7 +8,7 @@
   "wailsjsdir": "./frontend",
   "info": {
     "productName": "Glow Panel",
-    "productVersion": "0.1.0",
+    "productVersion": "0.2.0",
     "comments": "MQTT control panel for the GlowKitchen LED strips"
   }
 }
