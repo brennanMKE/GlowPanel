@@ -9,7 +9,7 @@ Does the same job as the `glow-*.sh` cron scripts, interactively.
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
 Wayland session — and on macOS as a native `.app`.
 
-![GlowPanel showing the Looks tab: six theme buttons, a Looks/Effects toggle, the brightness slider at 75%, On/Off and connection status in the header, and per-strip status chips](GlowPanel.png)
+![GlowPanel showing the Looks tab: six theme buttons, a Looks/Effects toggle, a running-effect banner reading "Scan · 3:58 left" with a Stop button, the brightness slider at 75%, On/Off and connection status in the header, and per-strip status chips](GlowPanel.png)
 
 ## What it does
 
@@ -22,7 +22,7 @@ Wayland session — and on macOS as a native `.app`.
 
 ## Effects
 
-![GlowPanel showing the Effects tab: nine preset buttons, a Run For duration row with 5 min selected, and a Stop button](GlowPanelEffects.png)
+![GlowPanel showing the Effects tab: nine preset buttons with Cylon selected, a Run For duration row with 5 min selected, and a banner reading "Scan · 4:26 left" beside a Stop button](GlowPanelEffects.png)
 
 A theme is a look the strips hold. An effect is something they *do* — it runs,
 it can time out, and when it stops the strips go back to whatever theme was

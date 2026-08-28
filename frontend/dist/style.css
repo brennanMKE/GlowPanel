@@ -355,6 +355,18 @@ input[type="range"]::-moz-range-thumb {
 .effect { min-height: 58px; font-size: 17px; }
 .effect .em { font-size: 24px; }
 
+/* The picker's heading row carries the Looks/Effects switch, which is half
+   again as tall as the heading beside it. Baseline alignment leaves it sitting
+   crooked, and the heading's own 10px bottom margin is not enough room once the
+   switch is what sets the row's height - so the row aligns on the box and
+   carries its own spacing above and below. */
+.picker-head {
+    align-items: center;
+    margin: 0 0 14px;
+}
+
+.picker-head h2 { margin-bottom: 0; }
+
 .seg {
     display: flex;
     gap: 4px;
@@ -389,7 +401,7 @@ input[type="range"]::-moz-range-thumb {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-top: 12px;
+    margin-top: 8px;
 }
 
 .effect-bar[hidden] { display: none; }
@@ -523,6 +535,7 @@ footer {
     main { gap: 10px; padding: 10px 14px 6px; }
     .panel { padding: 12px 14px 12px; }
     .panel h2 { margin-bottom: 8px; }
+    .picker-head { margin: 0 0 10px; }
     .ticks { margin: 5px 76px 0; }
     footer { padding: 4px 14px 10px; }
 }
