@@ -340,6 +340,136 @@ input[type="range"]::-moz-range-thumb {
 .theme:active { transform: scale(0.96); }
 .theme.active { border-color: #fff; }
 
+/* Both grids declare `display: grid`, which outranks the UA stylesheet's
+   [hidden] { display: none } - the same trap the About dialog hit. Without
+   this the two grids stack on top of each other and the tabs do nothing. */
+.themes[hidden] { display: none; }
+
+/* --- effects ---------------------------------------------------------- */
+
+/* Nine effects against six themes, so a third row. The buttons give back some
+   height to pay for it: still well over the 64px the panel is built around,
+   but enough that the brightness slider stays on screen at the default size. */
+.effects { grid-template-columns: repeat(3, 1fr); }
+
+.effect { min-height: 58px; font-size: 17px; }
+.effect .em { font-size: 24px; }
+
+.seg {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 999px;
+    background: #16142250;
+}
+
+.seg-btn {
+    min-height: 34px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+}
+
+.seg-btn.on {
+    background: #3a3558;
+    color: var(--text);
+}
+
+/* One row carrying both halves of the effect controls: how long the next one
+   should run on the left, what is running now on the right. */
+.effect-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.effect-bar[hidden] { display: none; }
+
+.dur {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dur[hidden] { display: none; }
+
+.dur-label {
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.dur-btn {
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid var(--panel-edge);
+    border-radius: 999px;
+    background: #2a2640;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.dur-btn.on {
+    background: #4a4372;
+    border-color: #7d74c4;
+    color: var(--text);
+}
+
+/* Pushed right, so the running banner sits next to the Stop button that acts
+   on it rather than next to the duration chips that do not. */
+.running {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-left: auto;
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.running[hidden] { display: none; }
+
+.pip {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--on);
+}
+
+.stop {
+    min-height: 40px;
+    margin-left: auto;
+    padding: 0 22px;
+    border: 1px solid #7f2d2d;
+    border-radius: 12px;
+    background: #4a1d1d;
+    color: #ffd9d9;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+/* When the banner is showing it has already claimed the auto margin, so the
+   button sits against it instead of being pushed away from it. */
+.running:not([hidden]) + .stop { margin-left: 0; }
+
+.stop:active { background: #632626; }
+
 /* --- device chips ----------------------------------------------------- */
 
 footer {
@@ -372,15 +502,22 @@ footer {
     outline-offset: 3px;
 }
 
-/* Narrow displays: two theme columns rather than three. */
+/* Narrow displays: two theme columns rather than three, and the effect
+   controls wrap rather than squeezing the duration chips off the row. */
 @media (max-width: 720px) {
     .themes { grid-template-columns: repeat(2, 1fr); }
+    .effect-bar { flex-wrap: wrap; }
+    .running { margin-left: 0; }
 }
 
 /* Short displays: shrink before resorting to a scrollbar. */
 @media (max-height: 560px) {
     .theme { min-height: 66px; font-size: 17px; }
     .theme .em { font-size: 30px; }
+    .effect { min-height: 56px; font-size: 15px; }
+    .effect .em { font-size: 24px; }
+    .effect-bar { margin-top: 10px; }
+    .dur-btn, .stop { min-height: 38px; }
     .pct { font-size: 28px; }
     .step { width: 60px; height: 60px; font-size: 30px; }
     main { gap: 10px; padding: 10px 14px 6px; }

@@ -51,6 +51,19 @@ const (
 	// emitCoalesce collects the burst of replies to a single STATUS request -
 	// five strips answering at once - into one render.
 	emitCoalesce = 250 * time.Millisecond
+
+	// effectPollInterval is how often the panel asks for a report while an
+	// effect is counting down. The device's clock is the one that matters -
+	// it survives reboots the panel's timer does not - so the banner is driven
+	// by what the strip says rather than by a local countdown. This ticker only
+	// sends anything while an effect is actually running.
+	effectPollInterval = 5 * time.Second
+
+	// effectConfirmDelay is the pause before the STATUS that confirms an effect
+	// command landed. A rejected SET_EFFECT produces no reply of any kind, so
+	// the only confirmation available is seeing "Custom" come back. A round
+	// trip is about 150ms on a healthy device.
+	effectConfirmDelay = 400 * time.Millisecond
 )
 
 type App struct {
@@ -116,6 +129,8 @@ func (a *App) run() {
 	defer heartbeat.Stop()
 	query := time.NewTicker(statusQueryInterval)
 	defer query.Stop()
+	effect := time.NewTicker(effectPollInterval)
+	defer effect.Stop()
 
 	for {
 		select {
@@ -141,6 +156,13 @@ func (a *App) run() {
 		case <-query.C:
 			// Read-only: asks the strips to talk, never tells them to change.
 			a.broker.RequestStatus()
+
+		case <-effect.C:
+			// Same read-only query, just often enough to keep a countdown
+			// honest - and only while there is one to keep.
+			if a.broker.EffectActive() {
+				a.broker.RequestStatusNow()
+			}
 		}
 	}
 }
@@ -170,6 +192,13 @@ type Status struct {
 	Devices   []DeviceState `json:"devices"`
 	Percent   int           `json:"percent"` // representative level for the slider
 	AnyOn     bool          `json:"anyOn"`
+
+	// The running effect, from any strip on the broker rather than only the
+	// configured ones - effects are broadcast, so the strip that answers may
+	// not be in glow.conf. Empty EffectMode means nothing is running, and
+	// EffectRemaining is -1 for an effect with no timeout.
+	EffectMode      string `json:"effectMode"`
+	EffectRemaining int    `json:"effectRemaining"`
 }
 
 // GetStatus is what the frontend reads at startup and what the "status" event
@@ -183,6 +212,7 @@ func (a *App) GetStatus() Status {
 	}
 	st.Connected = a.broker.Connected()
 	st.Devices = a.broker.Snapshot()
+	st.EffectMode, st.EffectRemaining = a.broker.RunningEffect()
 
 	for _, d := range st.Devices {
 		if d.LastSeenAgo >= 0 {
@@ -229,7 +259,25 @@ func (a *App) SetTheme(id string) string {
 	if !valid {
 		return "unknown theme: " + id
 	}
-	if err := a.broker.Publish(id, true); err != nil {
+	// A theme arriving on the broadcast topic is ignored by a strip that is
+	// running an effect - device state wins over a fleet-wide command, per
+	// GlowKitchen issue #0020 - so the effect has to come down first. Pressing
+	// a theme button is how anyone gets out of an effect without hunting for
+	// the Stop button, and it has to keep working.
+	if a.broker.EffectActive() {
+		if err := a.broker.Publish("CLEAR_EFFECT", false); err != nil {
+			return err.Error()
+		}
+		log.Print("theme press cleared the running effect")
+	}
+
+	// Routed through the configured retain flag rather than a hard-coded true,
+	// which is what SetBrightness and SetPower already do. A retained command
+	// is redelivered to every device on every reconnect, forever: a retained
+	// FOREST sitting on the broker snapped a strip back to Forest seconds after
+	// every effect was applied, and survived reboots of both the board and the
+	// broker, because nothing was publishing it - MQTT was replaying it.
+	if err := a.broker.Publish(id, a.cfg.Retain); err != nil {
 		return err.Error()
 	}
 	log.Printf("theme -> %s", id)
@@ -249,6 +297,71 @@ func (a *App) SetPower(on bool) string {
 	}
 	log.Printf("power -> %s", cmd)
 	return ""
+}
+
+// --- effects ---------------------------------------------------------------
+
+func (a *App) GetEffects() []Effect { return effects }
+
+func (a *App) GetDurations() []Duration { return durations }
+
+func (a *App) GetDefaultDuration() int { return defaultDurationSeconds }
+
+// SetEffect starts one preset for the given number of seconds, 0 meaning until
+// something stops it.
+//
+// Effects are published unretained regardless of a.cfg.Retain, which the theme and
+// brightness paths honour. An effect is an event, not a configuration: a
+// retained SET_EFFECT is replayed to every device on every reconnect, and a
+// retained one carrying a timeout restarts its countdown each time.
+func (a *App) SetEffect(id string, seconds int) string {
+	if a.broker == nil {
+		return "not ready"
+	}
+	e, ok := findEffect(id)
+	if !ok {
+		return "unknown effect: " + id
+	}
+	payload, err := buildEffectPayload(e, seconds)
+	if err != nil {
+		return err.Error()
+	}
+	if err := a.broker.Publish(payload, false); err != nil {
+		return err.Error()
+	}
+	log.Printf("effect -> %s (%s, %ds)", e.ID, e.Mode, seconds)
+	a.confirmEffect()
+	return ""
+}
+
+// ClearEffect stops whatever is running and hands the strips back to the theme
+// they were showing. It is a no-op on the device when nothing is running, so
+// the Stop button never needs to be conditionally disabled.
+func (a *App) ClearEffect() string {
+	if a.broker == nil {
+		return "not ready"
+	}
+	if err := a.broker.Publish("CLEAR_EFFECT", false); err != nil {
+		return err.Error()
+	}
+	log.Print("effect -> cleared")
+	a.confirmEffect()
+	return ""
+}
+
+// confirmEffect asks the strips to report shortly after an effect command, so
+// the banner reflects what actually happened rather than what was asked for.
+// The device says nothing at all when it rejects a payload, so seeing the mode
+// come back is the only acknowledgement there is.
+func (a *App) confirmEffect() {
+	go func() {
+		select {
+		case <-time.After(effectConfirmDelay):
+		case <-a.quit:
+			return
+		}
+		a.broker.RequestStatusNow()
+	}()
 }
 
 // RefreshStatus is called when the panel comes back into view. It asks the

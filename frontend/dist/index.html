@@ -36,11 +36,38 @@
     <div id="error" class="error" hidden></div>
 
     <!-- Themes first: they are what anyone walking up to the panel actually
-         wants, and pressing one also turns the strips on. -->
+         wants, and pressing one also turns the strips on.
+
+         Effects share this panel rather than living on a second screen: the
+         brightness slider and the power switch stay reachable whichever grid is
+         showing, and there is no navigation for a child to get lost in. -->
     <main>
         <section class="panel">
-            <h2>Pick a Look</h2>
+            <div class="panel-head">
+                <h2 id="pickerTitle">Pick a Look</h2>
+                <div class="seg" role="tablist" aria-label="Looks or effects">
+                    <button type="button" class="seg-btn on" id="tabLooks"
+                            role="tab" aria-selected="true">Looks</button>
+                    <button type="button" class="seg-btn" id="tabEffects"
+                            role="tab" aria-selected="false">Effects</button>
+                </div>
+            </div>
+
             <div class="themes" id="themes"></div>
+            <div class="themes effects" id="effects" hidden></div>
+
+            <!-- Shown on the Effects tab, and also on the Looks tab whenever
+                 something is running, so the Stop button is never more than one
+                 press away from wherever the user happens to be. -->
+            <div class="effect-bar" id="effectBar" hidden>
+                <div class="dur" id="durations" role="group" aria-label="How long to run">
+                    <span class="dur-label">Run for</span>
+                </div>
+                <div class="running" id="running" hidden>
+                    <span class="pip"></span><span id="runningText"></span>
+                </div>
+                <button type="button" class="stop" id="stop">Stop</button>
+            </div>
         </section>
 
         <section class="panel">

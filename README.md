@@ -9,14 +9,66 @@ Does the same job as the `glow-*.sh` cron scripts, interactively.
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
 Wayland session — and on macOS as a native `.app`.
 
-![GlowPanel running on a Raspberry Pi 3B, showing the brightness slider at 100%, six theme buttons, On/Off controls, and per-strip status chips](GlowPanel.png)
+![GlowPanel showing the Looks tab: six theme buttons, a Looks/Effects toggle, the brightness slider at 75%, On/Off and connection status in the header, and per-strip status chips](GlowPanel.png)
 
 ## What it does
 
 - **Six theme buttons** with colour and emoji, sized for small hands
+- **Nine effect presets** behind a Looks/Effects toggle, with a duration and a
+  Stop button
 - **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
 - **On / Off** as a switch in the header, next to the connection status
 - **Live status** per strip, pushed from `lights/+/state` as the strips report
+
+## Effects
+
+![GlowPanel showing the Effects tab: nine preset buttons, a Run For duration row with 5 min selected, and a Stop button](GlowPanelEffects.png)
+
+A theme is a look the strips hold. An effect is something they *do* — it runs,
+it can time out, and when it stops the strips go back to whatever theme was
+showing. The firmware exposes them through one command, `SET_EFFECT:` followed
+by a JSON body, and `CLEAR_EFFECT` to stop.
+
+The nine presets are the tuned defaults from GlowKitchen's
+`scripts/demo_effect.sh`, copied into `effects.go` rather than read from it — a
+Pi that only has the binary has no copy of that script. Each carries its mode,
+palette, speed and intensity; the panel adds the timeout from the "Run for" row.
+
+**Effects share the theme panel rather than taking a second screen.** The
+brightness slider and the power switch stay reachable whichever grid is showing,
+and there is no navigation for a child to get lost in. The running banner and
+the Stop button also appear on the Looks tab while something is running, so
+stopping an effect never requires finding the tab it was started from.
+
+**Effects are never published retained**, whatever `RETAIN` says in `glow.conf`.
+An effect is an event, not a configuration: a retained `SET_EFFECT` is replayed
+to every device on every reconnect, and one carrying a timeout restarts its
+countdown each time. This is not hypothetical — a retained `FOREST` sitting on
+the broker used to snap a strip back to Forest seconds after every effect, and
+survived reboots of the board and the broker both, because nothing was
+publishing it. MQTT was replaying it. `SetTheme` used to hard-code the same
+mistake and now follows the configured flag like brightness and power do.
+
+**Everything is validated before it is sent.** The firmware answers a malformed
+payload by changing nothing and publishing nothing — no error topic, no NACK,
+the reason goes to its serial log alone. A rejection on the wire is
+indistinguishable from a message that never arrived, so `buildEffectPayload`
+checks the mode, the colour format, the 0–255 ranges and the 512-byte device
+buffer first. `effects_test.go` runs every shipped preset through it.
+
+**The countdown comes from the device, not from a local timer.** While an effect
+is running the strip's `STATUS` reply gains a `custom` object with the mode and
+the seconds remaining, and the panel polls for it every 5 seconds — the strip's
+clock survives reboots the panel's would not. The displayed seconds tick locally
+between polls purely so the number moves; every reply snaps it back. A `custom`
+object is absent whenever the theme is not `Custom`, which means no effect
+rather than an error.
+
+**Strobe is capped at 60 seconds** even when "Until stopped" is selected. The
+other eight presets take the duration as given.
+
+See `docs/glowpanel_effects_integration.md` in the GlowKitchen repo for the
+command reference and the firmware-side details.
 
 ## Design notes
 
@@ -26,16 +78,31 @@ likely to fail in the Pi's ~600 MB of free RAM, so it is simply not there.
 
 **Event driven, not polled.** The strips publish to `lights/+/state` when they
 change; the Go side pushes a `status` event at the frontend only when the cached
-view actually differs, so an idle panel does no work. Two slow timers remain: a
-local re-render every 60s to keep the "last seen" ages honest, and a `STATUS`
-request every 5 minutes to pick up a strip that rebooted. Bringing the window
-back into focus also asks for a report, throttled to one message per 15s.
+view actually differs, so an idle panel does no work. Three timers remain: a
+local re-render every 60s to keep the "last seen" ages honest, a `STATUS`
+request every 5 minutes to pick up a strip that rebooted, and — only while an
+effect is counting down — a `STATUS` request every 5s to keep the banner's
+remaining seconds honest. Bringing the window back into focus also asks for a
+report, throttled to one message per 15s.
 
 **Background traffic never changes the lights.** The only thing GlowPanel
-publishes unprompted is `STATUS` on `lights/all/cmd` — a read-only query, sent
-with the retain flag off so nothing lingers on the broker for a device to replay
-and act on when it reconnects. Themes, brightness and power go through
-`Broker.Publish`, which is reached from a button press and nothing else.
+publishes unprompted is `STATUS` — a read-only query, sent with the retain flag
+off so nothing lingers on the broker for a device to replay and act on when it
+reconnects. Themes, brightness, power and effects go through `Broker.Publish`,
+which is reached from a button press and nothing else.
+
+**One message, not one per device.** Everything goes to `lights/all/cmd`, which
+every strip subscribes to. `Broker.Publish` used to loop over the names in
+`glow.conf` and send an identical copy to each — five times the traffic, and
+silent towards any strip the config did not happen to list, such as one being
+staged onto new firmware. `DEVICES` now only decides which strips get a status
+chip in the footer.
+
+One wrinkle comes with it: a strip running an effect ignores a *theme* arriving
+on the broadcast topic, because device state wins over a fleet-wide command
+(GlowKitchen issue #0020). Pressing a theme button is how anyone gets out of an
+effect without hunting for Stop, so `SetTheme` sends `CLEAR_EFFECT` first when
+something is running.
 
 **Shares `glow.conf`.** Config comes from `~/.config/glowkitchen/glow.conf` —
 the same file the GlowKitchen `install.sh` already wrote for the cron scripts.

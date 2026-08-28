@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,14 @@ type DeviceState struct {
 	Enabled     bool   `json:"enabled"`
 	Firmware    string `json:"firmware"`
 	LastSeenAgo int    `json:"lastSeenAgo"` // seconds
+	NumLeds     int    `json:"numLeds"`
+
+	// A running custom effect. EffectMode is empty when none is running - the
+	// firmware omits the whole "custom" object unless the theme is "Custom",
+	// and absence means no effect rather than an error. EffectRemaining is
+	// whole seconds, or -1 for an effect with no timeout at all.
+	EffectMode      string `json:"effectMode"`
+	EffectRemaining int    `json:"effectRemaining"`
 }
 
 // statusPayload matches what the firmware publishes on lights/<device>/state.
@@ -28,6 +37,20 @@ type statusPayload struct {
 	Theme           string `json:"theme"`
 	LedsEnabled     bool   `json:"ledsEnabled"`
 	FirmwareVersion string `json:"firmwareVersion"`
+	NumLeds         int    `json:"numLeds"`
+
+	// Present only while a custom effect is running, which is why it is a
+	// pointer: a nil Custom is the normal state, not a missing field to warn
+	// about. There is deliberately no colours field here - the panel that sent
+	// the effect keeps its own palette; it cannot be recovered from the device.
+	Custom *customPayload `json:"custom"`
+}
+
+type customPayload struct {
+	Mode string `json:"mode"`
+	// TimeoutRemaining is whole seconds rounded up, and -1 - never null, never
+	// absent while custom is present - for an effect running until changed.
+	TimeoutRemaining int `json:"timeoutRemaining"`
 }
 
 // statusQuery is the only payload GlowPanel ever publishes on its own, without
@@ -36,6 +59,11 @@ type statusPayload struct {
 // it that way. Anything that alters the lights goes through Publish, which is
 // only ever reached from a button press.
 const statusQuery = "STATUS"
+
+// broadcastTopic is where everything the panel sends goes: commands and the
+// STATUS query alike. Every strip subscribes to it, so nothing depends on the
+// panel having been told a device's name.
+const broadcastTopic = "lights/all/cmd"
 
 // minQueryGap throttles status requests so several triggers arriving together -
 // the window regaining focus, a reconnect, the slow background refresh - result
@@ -133,6 +161,11 @@ func (b *Broker) onState(_ mqtt.Client, msg mqtt.Message) {
 		Theme:      p.Theme,
 		Enabled:    p.LedsEnabled,
 		Firmware:   p.FirmwareVersion,
+		NumLeds:    p.NumLeds,
+	}
+	if p.Custom != nil {
+		next.EffectMode = p.Custom.Mode
+		next.EffectRemaining = p.Custom.TimeoutRemaining
 	}
 
 	b.mu.Lock()
@@ -151,9 +184,11 @@ func (b *Broker) onState(_ mqtt.Client, msg mqtt.Message) {
 	}
 }
 
-// Publish sends one command to every configured device. It reports the first
-// error but still attempts the rest, so one unreachable strip does not stop the
-// others from responding.
+// Publish sends one command to lights/all/cmd, which every strip on the broker
+// subscribes to. One message, not one per device: the panel used to loop over
+// the names in glow.conf and send five identical copies, which meant a strip
+// the config did not happen to list - one being staged onto new firmware, say -
+// never heard anything at all.
 //
 // This is the only path that can change what the strips are doing, and it must
 // stay that way: it is called from button presses alone, never from anything on
@@ -162,16 +197,11 @@ func (b *Broker) Publish(payload string, retain bool) error {
 	if b.client == nil || !b.client.IsConnected() {
 		return fmt.Errorf("not connected to broker")
 	}
-	var firstErr error
-	for _, d := range b.cfg.Devices {
-		tok := b.client.Publish("lights/"+d+"/cmd", 1, retain, payload)
-		if !tok.WaitTimeout(5*time.Second) && firstErr == nil {
-			firstErr = fmt.Errorf("timed out publishing to %s", d)
-		} else if err := tok.Error(); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	tok := b.client.Publish(broadcastTopic, 1, retain, payload)
+	if !tok.WaitTimeout(5 * time.Second) {
+		return fmt.Errorf("timed out publishing to %s", broadcastTopic)
 	}
-	return firstErr
+	return tok.Error()
 }
 
 // RequestStatus asks every strip to report in. It is read-only - the payload is
@@ -181,6 +211,44 @@ func (b *Broker) Publish(payload string, retain bool) error {
 //
 // Returns false when the request was throttled or the broker is unreachable.
 func (b *Broker) RequestStatus() bool { return b.query(b.client, false) }
+
+// RequestStatusNow is RequestStatus without the throttle, for the two moments
+// where waiting up to minQueryGap would show the user something stale: just
+// after an effect command, to confirm it landed, and every few seconds while
+// one is counting down. Still read-only, still unretained.
+func (b *Broker) RequestStatusNow() bool { return b.query(b.client, true) }
+
+// EffectActive reports whether any strip last said it was running an effect.
+func (b *Broker) EffectActive() bool {
+	mode, _ := b.RunningEffect()
+	return mode != ""
+}
+
+// RunningEffect reports the effect any strip on the broker is running, not just
+// the ones named in glow.conf. Effects are broadcast to lights/all/cmd, so the
+// strip that answers may well be one the panel does not otherwise track - it
+// still needs a banner and a working Stop button.
+//
+// An empty mode means nothing is running. Remaining is -1 for an effect with no
+// timeout. Devices are scanned in name order so two strips running different
+// effects produce a stable answer rather than a flickering one.
+func (b *Broker) RunningEffect() (string, int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.state))
+	for name, s := range b.state {
+		if s.EffectMode != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return "", 0
+	}
+	sort.Strings(names)
+	s := b.state[names[0]]
+	return s.EffectMode, s.EffectRemaining
+}
 
 // query takes the client explicitly so the OnConnect handler, which runs on a
 // paho goroutine, can use the client it was handed rather than racing the field.
@@ -197,7 +265,7 @@ func (b *Broker) query(c mqtt.Client, force bool) bool {
 	b.lastQuery = time.Now()
 	b.mu.Unlock()
 
-	c.Publish("lights/all/cmd", 1, false, statusQuery)
+	c.Publish(broadcastTopic, 1, false, statusQuery)
 	return true
 }
 
