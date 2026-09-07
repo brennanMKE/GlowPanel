@@ -640,8 +640,17 @@ function applyEffect(mode, remaining) {
     // -1 is an effect with no timeout at all, which is never a countdown.
     effectDeadline = remaining < 0 ? null : Date.now() + remaining * 1000;
 
-    const match = (window.__effects || []).find((e) => e.mode === mode);
-    if (match && match.id !== activeEffect) setActiveEffect(match.id);
+    // Two presets can share a mode - Candle and Cyberpunk are both FLICKER -
+    // and the device reports the mode, never which button started it. So a
+    // report that agrees with the button already lit leaves it alone, and only
+    // a mode nothing lit can explain moves the highlight. That keeps a preset
+    // started here highlighted correctly, and still lights something sensible
+    // for an effect started from outside the panel.
+    const current = (window.__effects || []).find((e) => e.id === activeEffect);
+    if (!current || current.mode !== mode) {
+        const match = (window.__effects || []).find((e) => e.mode === mode);
+        if (match) setActiveEffect(match.id);
+    }
 
     renderEffectBar(mode, remaining);
     if (effectDeadline !== null) startCountdown(); else stopCountdown();

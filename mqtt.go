@@ -288,6 +288,24 @@ func (b *Broker) MinNumLeds() int {
 	return min
 }
 
+// MaxNumLeds returns the longest strip that has reported a length, or 0 when
+// none has. It is the counterpart to MinNumLeds: the shortest strip decides how
+// fast an effect may safely move, and the longest decides how fast it has to
+// move to cross in a given time. Both are needed to turn a preset's requested
+// crossing rate into one broadcast speed byte.
+func (b *Broker) MaxNumLeds() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	max := 0
+	for _, s := range b.state {
+		if s.NumLeds > max {
+			max = s.NumLeds
+		}
+	}
+	return max
+}
+
 // Snapshot returns the configured devices in config order, so the UI list does
 // not reshuffle as messages arrive.
 func (b *Broker) Snapshot() []DeviceState {

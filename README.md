@@ -31,10 +31,64 @@ it can time out, and when it stops the strips go back to whatever theme was
 showing. The firmware exposes them through one command, `SET_EFFECT:` followed
 by a JSON body, and `CLEAR_EFFECT` to stop.
 
-The nine presets are the tuned defaults from GlowKitchen's
-`scripts/demo_effect.sh`, copied into `effects.go` rather than read from it — a
-Pi that only has the binary has no copy of that script. Each carries its mode,
-palette, speed and intensity; the panel adds the timeout from the "Run for" row.
+Two of the nine presets — Dolly and Cylon — are tuned defaults from
+GlowKitchen's `scripts/demo_effect.sh`, copied into `effects.go` rather than
+read from it, since a Pi that only has the binary has no copy of that script.
+Each preset carries its mode, palette, speed and intensity; the panel adds the
+timeout from the "Run for" row.
+
+The other seven are ours:
+
+| Preset | Mode | Reference |
+|---|---|---|
+| **Cyberpunk** 🐉 | Flicker | The dragon hoarding over the noodle bar in *Blade Runner* — cold blue neon with the red of its tongue through it, on Flicker because the sign is a tube that is never quite steady |
+| **Pac-Man** 👻 | Chase | All four ghosts nose to tail, in [GlowGhosts](../../PlatformIO/GlowGhosts)' colours rather than the arcade's — see below |
+| **Matrix** 🟩 | Rain | Digital rain — drops at their own rates and lengths, each a bright head over a fading tail |
+| **Fire** 🔥 | Neon | Four heats side by side, each guttering on its own schedule |
+| **Tron** 🏍️ | Trail | Two light cycles whose ribbons stay lit — the arena fills, then clears |
+| **Tetris** 🧱 | Stack | Pieces fall, settle on what has already landed, and clear when the strip fills |
+| **Phosphor** 💾 | Pulse | A P1 terminal idling — a nine-second breath that only dips to two thirds |
+
+**Matrix is Chase, not Sparkle.** It was Sparkle to begin with, on the theory
+that a glyph popping and fading is what rain is made of. That is the wrong half:
+Sparkle spawns at `rng(0, numLeds)`, so it has no direction, and green twinkling
+is not the Matrix. Chase is the only renderer that travels. Chase now paints one
+run per palette colour, each trailing a fading tail, so this is two green streams
+falling rather than one flat streak. Still not the real thing — faithful rain
+wants many streams at *different* rates, and Chase moves them in lockstep.
+
+**Four renderers were added to the firmware** for these presets, because four
+of them were being approximated by a mode that could not quite do the job.
+`NEON` is Flicker indexed by LED position, so a palette lights at once in
+different places instead of the whole strip turning one colour at a time — that
+is what makes Fire fire. `RAIN` gives every drop its own rate and length, which
+is the unevenness Chase cannot produce. `TRAIL` leaves a dim wall behind each
+run until the lap wraps, where Chase's tail fades within a few LEDs. `STACK`
+drops pieces that settle and accumulate. None needs a per-LED array: Rain keeps
+eight drops in 32 bytes, and Stack derives every settled colour from how far up
+the stack it sits, so the strip is its own record.
+
+**Three presets depend on an earlier firmware change**: Chase used
+to paint a single run and rotate its colour once per lap, so a four-colour
+palette meant watching one colour cross, then the next. It now paints one run
+per colour. That costs no new parameter — the palette already says how many runs
+there are — and it is what makes Pac-Man four ghosts rather than one, Tron two
+cycles rather than one, and Matrix a rainfall rather than a streak. Boards
+running older firmware show the old single-run behaviour; nothing breaks.
+
+**Pac-Man's ghosts are deeper than the arcade's.** Pinky `#FFB8FF` and Clyde
+`#FFB851` carry so much white that a WS2812B renders them as pale lavender and
+near-white — which is what they looked like on the strip. The GlowGhosts project
+hit this on the same LEDs and settled on `#FF1E96` and `#FF4600`, so those are
+what ship here rather than a second round of the same discovery.
+
+They replaced the originals for Wipe, Chase, Flicker, Pulse, Strobe, Loop and
+Blend, which were a tour of the nine renderers: one preset per mode, a colour or
+two each, doing the plainest possible version of what that mode does. That is a
+good way to demonstrate firmware and a poor way to fill a grid someone presses.
+Picking the mode that serves the picture instead is why three presets are now
+Chase, two are Sparkle, and nothing at all is left on Wipe — the builder still
+reaches all nine modes, which is where the completeness belongs.
 
 **Effects share the theme panel rather than taking a second screen.** The
 brightness slider and the power switch stay reachable whichever grid is showing,
@@ -98,13 +152,40 @@ trigger this.
 
 **Intensity means something different in every mode**, so the slider says which
 — the width of a run in Chase and Scan, the depth of the breath in Pulse, how
-much of each flash is on in Strobe. Blend and Flicker hard-code their own value
-and ignore the field, so the slider is disabled for those two and only those.
+much of each flash is on in Strobe, how deep each dip goes in Flicker. Blend
+hard-codes its own value and ignores the field, so the slider is disabled for
+that one and only it. Flicker was the other until the firmware gave it both
+knobs — before that a Flicker effect was the same effect however it was
+configured.
 
-**Speed is scaled to the shortest strip that has reported.** The renderers were
-tuned for roughly 240 LEDs; on the 10-LED dev board anything much above 140
-crosses the whole strip in a fraction of a second and reads as a flash. Since
-effects are broadcast to every strip at once, the shortest one sets the ceiling.
+**The builder's speed slider is scaled to the shortest strip that has
+reported.** The renderers were tuned for roughly 240 LEDs; on the 10-LED dev
+board anything much above 140 crosses the whole strip in a fraction of a second
+and reads as a flash. Since effects are broadcast to every strip at once, the
+shortest one sets the ceiling.
+
+**Presets ask for a crossing time instead, and the panel solves for the speed.**
+Chase, Wipe and Scan advance one LED per tick, so the firmware's `speed` is
+milliseconds per LED and the strip's length decides how long a pass takes. Cylon
+at a fixed speed 0 swept the 10-LED dev board in 1.0s and a 240-LED run in 24s —
+correct on the bench, broken in the room. A scanner is recognised by its rate,
+so Cylon now states one (`TraverseMs: 1100`, about what the Knight Rider and
+Cylon scanners actually move at) and `resolveSpeed` inverts the firmware's
+`speedInterval` against the lengths the strips reported. A sweep is now roughly
+1.1s at 30, 60, 144, 240 and 300 LEDs alike. Portal, Tron and Pac-Man state
+their own rates the same way.
+
+Short strips are the exception, and it is the firmware's floor rather than this
+code: Chase cannot tick slower than 40ms, so a 60-LED strip laps in 2.4s however
+long Pac-Man asks for. Nothing can be done about that from the panel.
+
+The rate is solved for the *longest* strip, since the long ones are what a fixed
+speed leaves crawling, and then held back so the *shortest* never crosses faster
+than 400ms — a mixed fleet cannot have both from one broadcast byte. Note this
+does not reuse the slider's ceiling: that ceiling rises linearly with length and
+held a 60-LED strip to a 2.3s sweep when 1.1s was both asked for and perfectly
+readable. It is the right guard for a slider the user can drag anywhere, and the
+wrong one for a preset that has already said how fast it wants to cross.
 
 Order matters in six of the nine modes — the palette is the animation's
 sequence, not just its ingredients — so swatches can be moved with ◀ and ▶.

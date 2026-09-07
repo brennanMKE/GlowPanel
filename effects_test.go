@@ -43,34 +43,38 @@ func TestPresetsAreValid(t *testing.T) {
 	}
 }
 
-func TestPresetIDsAndModesAreUnique(t *testing.T) {
-	// The banner maps the mode the device reports back to a button, so two
-	// presets sharing a mode would highlight the wrong one.
+func TestPresetIDsAreUnique(t *testing.T) {
 	ids := map[string]bool{}
-	modes := map[string]bool{}
 	for _, e := range effects {
 		if ids[e.ID] {
 			t.Errorf("duplicate id %q", e.ID)
 		}
-		if modes[e.Mode] {
-			t.Errorf("duplicate mode %q", e.Mode)
-		}
 		ids[e.ID] = true
-		modes[e.Mode] = true
 	}
 }
 
-// Speed 0 is Cylon's slowest sweep, not an absent field. Dropping it would
-// hand the firmware its default of 128 instead, which is a different effect.
+// Modes used to be unique too, because the banner maps the mode the device
+// reports back to a button and two presets sharing one would highlight the
+// wrong button. Candle and Cyberpunk are both FLICKER, so that is now handled
+// in applyEffect() instead: a report that agrees with the lit button leaves it
+// alone. This test only pins the assumption that makes that work - every mode
+// named by a preset is one the firmware actually has.
+func TestPresetModesExist(t *testing.T) {
+	for _, e := range effects {
+		if _, ok := findMode(e.Mode); !ok {
+			t.Errorf("%s: unknown mode %q", e.ID, e.Mode)
+		}
+	}
+}
+
+// Speed 0 is the slowest sweep, not an absent field. Dropping it would hand the
+// firmware its default of 128 instead, which is a different effect. Cylon is
+// still the case that matters - resolveSpeed hands it a literal 0 on a short
+// strip - but the property is about the encoder, so this drives it directly
+// rather than through whatever speed the preset currently carries.
 func TestZeroSpeedIsSent(t *testing.T) {
-	cylon, ok := findEffect("cylon")
-	if !ok {
-		t.Fatal("cylon preset missing")
-	}
-	if cylon.Speed != 0 {
-		t.Fatalf("cylon speed is %d; this test is about the zero case", cylon.Speed)
-	}
-	payload, err := buildEffectPayload(cylon, 60)
+	zero := Effect{Label: "zero", Mode: "SCAN", Colors: []string{"#FF0000"}, Speed: 0, Intensity: 255}
+	payload, err := buildEffectPayload(zero, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +84,21 @@ func TestZeroSpeedIsSent(t *testing.T) {
 }
 
 func TestTimeoutClamping(t *testing.T) {
-	plain, _ := findEffect("chase")
-	capped, _ := findEffect("strobe")
-	cappedMode, _ := findMode(capped.Mode)
+	// Any uncapped preset does for the ordinary cases.
+	plain, ok := findEffect("dolly")
+	if !ok {
+		t.Fatal("dolly preset missing")
+	}
+	// The cap lives on the mode, not on a preset, and no preset ships on STROBE
+	// any more - the builder is now the only way to reach it. Building the
+	// capped case by hand is the point rather than a workaround: it is exactly
+	// what SetCustomEffect passes through.
+	cappedMode, ok := findMode("STROBE")
+	if !ok {
+		t.Fatal("STROBE mode missing")
+	}
+	capped := Effect{Label: "capped", Mode: cappedMode.ID,
+		Colors: []string{"#FFFFFF"}, Speed: 200, Intensity: 128}
 
 	cases := []struct {
 		name    string
@@ -231,8 +247,12 @@ func TestModesAreUsable(t *testing.T) {
 			t.Errorf("%s uses intensity but does not say what it does", m.ID)
 		}
 	}
-	if len(modes) != 9 {
-		t.Errorf("got %d modes, want the firmware's 9", len(modes))
+	// Nine renderers shipped in GlowKitchen issue #0015; NEON, RAIN, TRAIL and
+	// STACK were added in #0021. The count is pinned rather than left open so
+	// that a mode added to the firmware and forgotten here - which would make
+	// it unreachable from the builder - fails a test instead of going unnoticed.
+	if len(modes) != 13 {
+		t.Errorf("got %d modes, want the firmware's 13", len(modes))
 	}
 
 	// Every preset's mode must be one the builder knows about, since the mode
@@ -295,5 +315,123 @@ func TestSetCustomEffectValidates(t *testing.T) {
 				t.Errorf("accepted, returned %q", msg)
 			}
 		})
+	}
+}
+
+// --- crossing rate -----------------------------------------------------------
+
+// The numbers here are the firmware's, not ours: SCAN ticks every
+// speedInterval(speed, 100, 4) ms and moves one LED per tick, so a sweep is
+// numLeds of those. If GlowKitchen retunes a renderer, this is what fails.
+func TestTraverseSpeedMatchesTheFirmwareInterval(t *testing.T) {
+	scan, ok := findMode("SCAN")
+	if !ok {
+		t.Fatal("SCAN mode missing")
+	}
+	// speedInterval() from GlowKitchen src/effects.h.
+	interval := func(speed, slow, fast int) int {
+		return slow - ((slow-fast)*speed)/255
+	}
+
+	for _, leds := range []int{10, 30, 60, 144, 240, 300} {
+		speed := traverseSpeed(scan, leds, 1100)
+		if speed < 0 || speed > 255 {
+			t.Fatalf("%d LEDs: speed %d outside 0-255", leds, speed)
+		}
+		sweep := interval(speed, scan.SlowMs, scan.FastMs) * leds
+		// A 300-LED strip cannot be swept in 1100ms at the firmware's 4ms
+		// floor, and a 10-LED one cannot be slowed past its 100ms ceiling;
+		// both land close enough that the eye reads the same scanner.
+		if sweep < 800 || sweep > 1400 {
+			t.Errorf("%d LEDs: speed %d gives a %dms sweep, want ~1100ms", leds, speed, sweep)
+		}
+	}
+}
+
+// The bug this whole mechanism exists for: one speed byte, wildly different
+// sweeps. Cylon at a fixed speed 0 took 24 seconds to cross 240 LEDs.
+func TestCylonCrossesLongStripsAtTheSameRate(t *testing.T) {
+	cylon, ok := findEffect("cylon")
+	if !ok {
+		t.Fatal("cylon preset missing")
+	}
+	if cylon.TraverseMs <= 0 {
+		t.Fatal("cylon no longer asks for a crossing rate")
+	}
+	short := resolveSpeed(cylon, 10, 10)
+	long := resolveSpeed(cylon, 240, 240)
+	if long <= short {
+		t.Errorf("240 LEDs got speed %d, 10 LEDs got %d; the long strip must move faster per LED", long, short)
+	}
+	if short != 0 {
+		t.Errorf("10-LED strip got speed %d, want the unchanged 0", short)
+	}
+}
+
+// A uniform fleet gets the rate the preset asked for, at every length. This is
+// the assertion the traverseSpeed unit test does not make: resolveSpeed is
+// where a clamp meant for the builder's slider can quietly undo the whole
+// point, which is exactly what it did to a 60-LED strip.
+func TestResolveSpeedHitsTheRateOnAUniformFleet(t *testing.T) {
+	cylon, _ := findEffect("cylon")
+	scan, _ := findMode("SCAN")
+	interval := func(speed, slow, fast int) int { return slow - ((slow-fast)*speed)/255 }
+
+	for _, leds := range []int{30, 60, 144, 240} {
+		speed := resolveSpeed(cylon, leds, leds)
+		sweep := interval(speed, scan.SlowMs, scan.FastMs) * leds
+		if sweep < 800 || sweep > 1400 {
+			t.Errorf("%d LEDs: speed %d gives a %dms sweep, want ~%dms",
+				leds, speed, sweep, cylon.TraverseMs)
+		}
+	}
+}
+
+// One SET_EFFECT reaches every strip, so a speed solved for a 240-LED run must
+// still not blink a 10-LED dev board on and off.
+func TestResolveSpeedProtectsTheShortestStrip(t *testing.T) {
+	cylon, _ := findEffect("cylon")
+	scan, _ := findMode("SCAN")
+	interval := func(speed, slow, fast int) int { return slow - ((slow-fast)*speed)/255 }
+
+	speed := resolveSpeed(cylon, 240, 10)
+	if sweep := interval(speed, scan.SlowMs, scan.FastMs) * 10; sweep < minTraverseMs {
+		t.Errorf("speed %d sweeps the 10-LED strip in %dms, under the %dms floor",
+			speed, sweep, minTraverseMs)
+	}
+	// ...and is still a large improvement on the 24s the fixed speed gave.
+	if sweep := interval(speed, scan.SlowMs, scan.FastMs) * 240; sweep > 12000 {
+		t.Errorf("240-LED sweep is %dms; the mixed-fleet compromise gave up too much", sweep)
+	}
+}
+
+// A preset without a crossing rate, or a fleet that has not reported yet, must
+// send exactly the speed the preset was written with.
+func TestResolveSpeedLeavesFixedPresetsAlone(t *testing.T) {
+	for _, e := range effects {
+		if e.TraverseMs > 0 {
+			continue
+		}
+		if got := resolveSpeed(e, 240, 240); got != e.Speed {
+			t.Errorf("%s: speed %d, want the written %d", e.ID, got, e.Speed)
+		}
+	}
+	cylon, _ := findEffect("cylon")
+	if got := resolveSpeed(cylon, 0, 0); got != cylon.Speed {
+		t.Errorf("nothing reported: speed %d, want the written %d", got, cylon.Speed)
+	}
+}
+
+// FLICKER and BLEND force saturation and value to full, so a preset aimed at
+// either has to be built from colours that already survive that.
+func TestPresetsSurviveTheModesThatDiscardColour(t *testing.T) {
+	for _, e := range effects {
+		m, ok := findMode(e.Mode)
+		if !ok || m.KeepsColors {
+			continue
+		}
+		if !AllVivid(e.Colors) {
+			t.Errorf("%s: %s flattens these colours; use vivid ones", e.ID, e.Mode)
+		}
 	}
 }

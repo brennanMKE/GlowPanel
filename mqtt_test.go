@@ -121,7 +121,7 @@ func TestEffectsAreNeverRetained(t *testing.T) {
 	a.broker = NewBroker(a.cfg)
 	a.broker.client = c
 
-	if msg := a.SetEffect("chase", 300); msg != "" {
+	if msg := a.SetEffect("pacman", 300); msg != "" {
 		t.Fatalf("SetEffect: %s", msg)
 	}
 	if msg := a.ClearEffect(); msg != "" {

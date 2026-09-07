@@ -371,6 +371,12 @@ func (a *App) SetEffect(id string, seconds int) string {
 	if !ok {
 		return "unknown effect: " + id
 	}
+	// A preset that asks for a crossing rate rather than a speed gets it solved
+	// against the lengths the strips have actually reported, here rather than in
+	// buildEffectPayload - the builder sends a speed the user chose on a slider,
+	// and nothing should quietly move it.
+	e.Speed = resolveSpeed(e, a.broker.MaxNumLeds(), a.broker.MinNumLeds())
+
 	payload, err := buildEffectPayload(e, seconds)
 	if err != nil {
 		return err.Error()
@@ -378,7 +384,7 @@ func (a *App) SetEffect(id string, seconds int) string {
 	if err := a.broker.Publish(payload, false); err != nil {
 		return err.Error()
 	}
-	log.Printf("effect -> %s (%s, %ds)", e.ID, e.Mode, seconds)
+	log.Printf("effect -> %s (%s, speed %d, %ds)", e.ID, e.Mode, e.Speed, seconds)
 	a.confirmEffect()
 	return ""
 }
