@@ -107,15 +107,28 @@ var effects = []Effect{
 		Colors: []string{"#00FF00", "#00FF88", "#CCFFCC"},
 		Speed:  175, Intensity: 210},
 
-	// NEON is FLICKER that indexes the palette by LED position, which is what
-	// makes this fire rather than a strip that is uniformly red, then
-	// uniformly orange. Four heats sitting next to each other, each guttering
-	// on its own schedule, is most of what a fire actually looks like.
-	{ID: "fire", Label: "Fire", Emoji: "🔥",
-		Color:  "linear-gradient(0deg,#ff0000,#ff4400 40%,#ff6600 70%,#ffaa00)",
+	// Ruby Rhod, not the film. The Fifth Element's own palette is high-chroma
+	// warms against one cold anchor, which on a strip is close to what Sunset
+	// already does; Ruby is the exception the palette notes call out - leopard
+	// and gold and hot pink, meant to clash with everything around it - and he
+	// is the part of that film a light strip can actually be.
+	//
+	// The two dark swatches are deliberately left out. NEON takes hue and
+	// saturation from a colour and its value from the flicker, so leopard spot
+	// #241A10 and patent black #0B0B0B do not come out dark - they come out as
+	// muddy bright orange and grey. Print spots are a texture, and a strip has
+	// no way to render one; the four colours that survive the trip are the ones
+	// whose hue carries the identity.
+	//
+	// NEON rather than FLICKER for the same reason Cyberpunk needs it: gold and
+	// magenta have to be lit at once, in different places, the way they are on
+	// the costume. FLICKER would show the whole strip gold, then the whole strip
+	// pink.
+	{ID: "fifthelement", Label: "Fifth Element", Emoji: "🎤",
+		Color:  "linear-gradient(135deg,#d2a24c,#e0218a 40%,#c8a02c 70%,#f07aa8)",
 		Mode:   "NEON",
-		Colors: []string{"#FF0000", "#FF4400", "#FF6600", "#FFAA00"},
-		Speed:  150, Intensity: 205},
+		Colors: []string{"#D2A24C", "#E0218A", "#C8A02C", "#F07AA8"},
+		Speed:  185, Intensity: 190},
 
 	// Two light cycles. TRAIL rather than CHASE because a cycle's whole point
 	// is that its ribbon stays: the arena fills as they ride, then clears and
@@ -136,11 +149,24 @@ var effects = []Effect{
 	// colours: nothing fell and nothing stacked, so the reference landed on the
 	// palette alone. STACK drops a piece, settles it on what is already there,
 	// and clears when the strip fills.
+	//
+	// Each piece is ledsPerColor LEDs long, taken from the device rather than
+	// set here: one-LED pieces of different colours do not read as two pieces
+	// on a diffused strip, they read as white. That is the same unit the strips
+	// already group themes by, so a piece is as wide as a colour is on that
+	// strip.
+	//
+	// Intensity 0 means no gap between settled pieces - they sit flush, the way
+	// tetrominoes do. The gap is there in the mode for anyone who wants the
+	// pieces separated, and is worth raising on a strip with a heavy diffuser.
 	{ID: "tetris", Label: "Tetris", Emoji: "🧱",
 		Color:  "linear-gradient(0deg,#00ffff,#0000ff 18%,#ff6600 34%,#ffff00 50%,#00ff00 66%,#8800ff 82%,#ff0000)",
 		Mode:   "STACK",
 		Colors: []string{"#00FFFF", "#0000FF", "#FF6600", "#FFFF00", "#00FF00", "#8800FF", "#FF0000"},
-		Speed:  210, Intensity: 80},
+		Speed:  210, Intensity: 0,
+		// A piece falling the full length of the strip takes about four
+		// seconds; later pieces land sooner because the stack is in the way.
+		TraverseMs: 4000},
 
 	// A P1 phosphor terminal idling. Speed and intensity are both deliberately
 	// low: PULSE takes about nine seconds for a breath here and only dips to
@@ -224,11 +250,11 @@ var modes = []Mode{
 	{ID: "SPARKLE", Label: "Sparkle", UsesIntensity: true, KeepsColors: true,
 		ShowsWholePalette: true, Means: "how many LEDs are lit at once"},
 	{ID: "CHASE", Label: "Chase", UsesIntensity: true, KeepsColors: true,
-		Means: "the width of the travelling run", SlowMs: 40, FastMs: 2},
+		Means: "the width of the travelling run", SlowMs: 200, FastMs: 2},
 	{ID: "SCAN", Label: "Scan", UsesIntensity: true, KeepsColors: true,
-		Means: "the width of the sweeping band", SlowMs: 100, FastMs: 4},
+		Means: "the width of the sweeping band", SlowMs: 250, FastMs: 4},
 	{ID: "WIPE", Label: "Wipe", UsesIntensity: true, KeepsColors: true,
-		Means: "contrast with the part still to come", SlowMs: 40, FastMs: 2},
+		Means: "contrast with the part still to come", SlowMs: 200, FastMs: 2},
 	{ID: "PULSE", Label: "Pulse", UsesIntensity: true, KeepsColors: true,
 		Means: "the depth of the breath"},
 	{ID: "STROBE", Label: "Strobe", UsesIntensity: true, KeepsColors: true,
@@ -247,9 +273,9 @@ var modes = []Mode{
 	{ID: "RAIN", Label: "Rain", UsesIntensity: true, KeepsColors: true,
 		Means: "how many drops are falling"},
 	{ID: "TRAIL", Label: "Trail", UsesIntensity: true, KeepsColors: true,
-		Means: "the width of the bright head", SlowMs: 40, FastMs: 2},
+		Means: "the width of the bright head", SlowMs: 200, FastMs: 2},
 	{ID: "STACK", Label: "Stack", UsesIntensity: true, KeepsColors: true,
-		Means: "how long each falling piece is"},
+		Means: "the dark gap between settled pieces", SlowMs: 250, FastMs: 4},
 }
 
 func findMode(id string) (Mode, bool) {
@@ -516,6 +542,26 @@ func traverseSpeed(m Mode, numLeds, traverseMs int) int {
 // a run stops reading as something moving along the strip and reads as the
 // whole strip blinking. It is the floor the shortest strip is protected by.
 const minTraverseMs = 400
+
+// speedForStrip is the speed byte that gives this preset its stated crossing
+// time on one strip of a known length. It is what the per-device path uses, and
+// it needs no compromise at all: each strip is solved for on its own terms.
+//
+// A preset without a crossing time, or a length we do not have, keeps the speed
+// it was written with.
+func speedForStrip(e Effect, numLeds int) int {
+	if e.TraverseMs <= 0 || numLeds <= 0 {
+		return e.Speed
+	}
+	m, ok := findMode(strings.ToUpper(strings.TrimSpace(e.Mode)))
+	if !ok {
+		return e.Speed
+	}
+	if speed := traverseSpeed(m, numLeds, e.TraverseMs); speed >= 0 {
+		return speed
+	}
+	return e.Speed
+}
 
 // resolveSpeed is what a preset's speed becomes on the way out. A preset
 // without a TraverseMs keeps the speed it was written with.

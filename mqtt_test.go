@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -298,5 +299,56 @@ func TestThemePressClearsARunningEffect(t *testing.T) {
 	}
 	if pubs := c2.commands(); len(pubs) != 1 || pubs[0].payload != "FOREST" {
 		t.Errorf("idle theme press produced %+v", pubs)
+	}
+}
+
+// Presets go to each strip separately, with a speed solved for that strip. One
+// broadcast byte cannot give an 11-LED bench board and a 128-LED run the same
+// crossing time, and the compromise between them is what made the bench board
+// slow the whole fleet down.
+func TestPresetsAreSentPerDeviceWithPerStripSpeeds(t *testing.T) {
+	c := &fakeClient{}
+	a := NewApp()
+	a.cfg = &Config{Devices: []string{"workbench"}, Retain: true}
+	a.broker = NewBroker(a.cfg)
+	a.broker.client = c
+	a.broker.state["workbench"] = &DeviceState{NumLeds: 128}
+	a.broker.state["dev"] = &DeviceState{NumLeds: 11}
+
+	if msg := a.SetEffect("cylon", 300); msg != "" {
+		t.Fatalf("SetEffect: %s", msg)
+	}
+
+	byTopic := map[string]string{}
+	for _, p := range c.commands() {
+		byTopic[p.topic] = p.payload
+		if p.retain {
+			t.Errorf("%s was retained; effects never are", p.topic)
+		}
+	}
+	if len(byTopic) != 2 {
+		t.Fatalf("published to %d topics, want one per strip: %v", len(byTopic), byTopic)
+	}
+
+	long, ok := byTopic["lights/workbench/cmd"]
+	if !ok {
+		t.Fatal("nothing sent to the workbench strip")
+	}
+	short, ok := byTopic["lights/dev/cmd"]
+	if !ok {
+		t.Fatal("nothing sent to the bench board")
+	}
+	if long == short {
+		t.Error("both strips got the same payload; the speed was not solved per strip")
+	}
+
+	// The long strip must be told to move faster per LED, since it has more of
+	// them to cross in the same time.
+	cylon, _ := findEffect("cylon")
+	if want := speedForStrip(cylon, 128); !strings.Contains(long, `"speed":`+strconv.Itoa(want)) {
+		t.Errorf("workbench payload %s does not carry speed %d", long, want)
+	}
+	if want := speedForStrip(cylon, 11); !strings.Contains(short, `"speed":`+strconv.Itoa(want)) {
+		t.Errorf("dev payload %s does not carry speed %d", short, want)
 	}
 }

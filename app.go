@@ -371,10 +371,47 @@ func (a *App) SetEffect(id string, seconds int) string {
 	if !ok {
 		return "unknown effect: " + id
 	}
-	// A preset that asks for a crossing rate rather than a speed gets it solved
-	// against the lengths the strips have actually reported, here rather than in
-	// buildEffectPayload - the builder sends a speed the user chose on a slider,
-	// and nothing should quietly move it.
+
+	// A preset that asks for a crossing time rather than a speed is sent to each
+	// strip separately, with the speed solved for that strip's own length.
+	//
+	// It has to be. The firmware's speed is milliseconds per LED, so one
+	// broadcast byte cannot give an 11-LED bench board and a 128-LED run the
+	// same crossing time - solving for the long one makes the short one flash,
+	// solving for the short one makes the long one crawl, and the compromise
+	// between them satisfied neither. Adding the bench board to the broker was
+	// enough to take Cylon on the workbench strip from a 1.1s sweep to 4.6s,
+	// which is the bug this whole mechanism exists to fix, reintroduced by the
+	// hardware bought to test the fix.
+	//
+	// Sending N messages instead of one is the price, and it is small: a
+	// handful of devices, one publish each, only when a preset is pressed.
+	if lengths := a.broker.StripLengths(); e.TraverseMs > 0 && len(lengths) > 0 {
+		var failed []string
+		for device, numLeds := range lengths {
+			per := e
+			per.Speed = speedForStrip(e, numLeds)
+			payload, err := buildEffectPayload(per, seconds)
+			if err != nil {
+				return err.Error()
+			}
+			if err := a.broker.PublishTo(device, payload, false); err != nil {
+				failed = append(failed, device)
+				continue
+			}
+			log.Printf("effect -> %s to %s (%s, %d LEDs, speed %d, %ds)",
+				e.ID, device, e.Mode, numLeds, per.Speed, seconds)
+		}
+		if len(failed) > 0 {
+			return "could not reach: " + strings.Join(failed, ", ")
+		}
+		a.confirmEffect()
+		return ""
+	}
+
+	// Nothing has reported a length, or the preset states a fixed speed: one
+	// broadcast, which is also the only path that reaches a strip the panel has
+	// never heard from.
 	e.Speed = resolveSpeed(e, a.broker.MaxNumLeds(), a.broker.MinNumLeds())
 
 	payload, err := buildEffectPayload(e, seconds)

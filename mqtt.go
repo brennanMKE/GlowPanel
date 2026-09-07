@@ -288,6 +288,37 @@ func (b *Broker) MinNumLeds() int {
 	return min
 }
 
+// StripLengths returns every device that has reported a length, keyed by the
+// name it reports under. That includes devices absent from glow.conf - a bench
+// board, say - because a strip on the broker is a strip an effect reaches.
+func (b *Broker) StripLengths() map[string]int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make(map[string]int, len(b.state))
+	for name, s := range b.state {
+		if s.NumLeds > 0 {
+			out[name] = s.NumLeds
+		}
+	}
+	return out
+}
+
+// PublishTo sends one command to a single device rather than to every strip.
+// Used only for effects whose speed has to be solved per strip; everything else
+// still goes out on the broadcast topic, which needs no device names at all.
+func (b *Broker) PublishTo(device, payload string, retain bool) error {
+	if b.client == nil || !b.client.IsConnected() {
+		return fmt.Errorf("not connected to broker")
+	}
+	topic := "lights/" + device + "/cmd"
+	tok := b.client.Publish(topic, 1, retain, payload)
+	if !tok.WaitTimeout(5 * time.Second) {
+		return fmt.Errorf("timed out publishing to %s", topic)
+	}
+	return tok.Error()
+}
+
 // MaxNumLeds returns the longest strip that has reported a length, or 0 when
 // none has. It is the counterpart to MinNumLeds: the shortest strip decides how
 // fast an effect may safely move, and the longest decides how fast it has to

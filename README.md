@@ -44,7 +44,7 @@ The other seven are ours:
 | **Cyberpunk** 🐉 | Flicker | The dragon hoarding over the noodle bar in *Blade Runner* — cold blue neon with the red of its tongue through it, on Flicker because the sign is a tube that is never quite steady |
 | **Pac-Man** 👻 | Chase | All four ghosts nose to tail, in [GlowGhosts](../../PlatformIO/GlowGhosts)' colours rather than the arcade's — see below |
 | **Matrix** 🟩 | Rain | Digital rain — drops at their own rates and lengths, each a bright head over a fading tail |
-| **Fire** 🔥 | Neon | Four heats side by side, each guttering on its own schedule |
+| **Fifth Element** 🎤 | Neon | Ruby Rhod's leopard, gold and hot pink, lit at once and clashing on purpose |
 | **Tron** 🏍️ | Trail | Two light cycles whose ribbons stay lit — the arena fills, then clears |
 | **Tetris** 🧱 | Stack | Pieces fall, settle on what has already landed, and clear when the strip fills |
 | **Phosphor** 💾 | Pulse | A P1 terminal idling — a nine-second breath that only dips to two thirds |

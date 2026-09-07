@@ -363,8 +363,61 @@ func TestCylonCrossesLongStripsAtTheSameRate(t *testing.T) {
 	if long <= short {
 		t.Errorf("240 LEDs got speed %d, 10 LEDs got %d; the long strip must move faster per LED", long, short)
 	}
-	if short != 0 {
-		t.Errorf("10-LED strip got speed %d, want the unchanged 0", short)
+
+	// A 10-LED strip used to be pinned at speed 0 because the firmware's slow
+	// end was 100ms and the target needed 110. The slow ends were widened after
+	// bench testing on an 11-LED board, so short strips now reach the rate
+	// rather than bottoming out short of it.
+	scan, _ := findMode("SCAN")
+	sweep := (scan.SlowMs - ((scan.SlowMs-scan.FastMs)*short)/255) * 10
+	if sweep < 900 || sweep > 1300 {
+		t.Errorf("10 LEDs: speed %d gives a %dms sweep, want ~%dms", short, sweep, cylon.TraverseMs)
+	}
+}
+
+// The per-device path is the one presets actually take. Each strip is solved
+// for on its own, so no length is a compromise against any other.
+func TestSpeedForStripSolvesEachLengthOnItsOwn(t *testing.T) {
+	for _, id := range []string{"cylon", "pacman", "tron", "tetris"} {
+		e, ok := findEffect(id)
+		if !ok {
+			t.Fatalf("%s preset missing", id)
+		}
+		m, _ := findMode(e.Mode)
+		for _, leds := range []int{11, 50, 60, 120, 128, 240} {
+			speed := speedForStrip(e, leds)
+			pass := (m.SlowMs - ((m.SlowMs-m.FastMs)*speed)/255) * leds
+			lo, hi := e.TraverseMs*3/4, e.TraverseMs*5/4
+			if pass >= lo && pass <= hi {
+				continue
+			}
+			// Speed 0 is the firmware's slowest tick. A strip short enough that
+			// even that cannot stretch the pass to the asked-for time is at the
+			// renderer's floor, not at a bug: 11 LEDs times CHASE's 200ms slow
+			// end is 2.2s, and Pac-Man wants 3s. Landing under the target is
+			// the honest outcome; landing over it never is.
+			if speed == 0 && pass < lo {
+				continue
+			}
+			t.Errorf("%s at %d LEDs: speed %d gives %dms, want %dms",
+				id, leds, speed, pass, e.TraverseMs)
+		}
+	}
+}
+
+// A preset with a fixed speed, or a length we do not have, must be left alone.
+func TestSpeedForStripLeavesFixedPresetsAlone(t *testing.T) {
+	for _, e := range effects {
+		if e.TraverseMs > 0 {
+			continue
+		}
+		if got := speedForStrip(e, 128); got != e.Speed {
+			t.Errorf("%s: speed %d, want the written %d", e.ID, got, e.Speed)
+		}
+	}
+	cylon, _ := findEffect("cylon")
+	if got := speedForStrip(cylon, 0); got != cylon.Speed {
+		t.Errorf("unknown length: speed %d, want the written %d", got, cylon.Speed)
 	}
 }
 
