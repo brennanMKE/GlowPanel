@@ -9,22 +9,22 @@ Does the same job as the `glow-*.sh` cron scripts, interactively.
 Runs on Raspberry Pi 3B, Raspberry Pi OS 13 (trixie), arm64, under the labwc
 Wayland session — and on macOS as a native `.app`.
 
-![GlowPanel showing the Looks tab: six theme buttons, a Looks/Effects toggle, a running-effect banner reading "Scan · 3:58 left" with a Stop button, the brightness slider at 75%, On/Off and connection status in the header, and per-strip status chips](GlowPanel.png)
+![Glow Panel on the Looks tab: six theme buttons — Rainbow, Green, Pink Pony, Ocean, Sunset, Forest — with Green selected, a Looks/Effects/Custom switch, the brightness slider at 100%, On/Off and connection status in the header, and per-strip chips along the bottom](GlowPanel.png)
 
 ## What it does
 
 - **Six theme buttons** with colour and emoji, sized for small hands
 - **Nine effect presets** behind a Looks/Effects/Custom switch, with a duration
   and a Stop button
-- **A custom effect builder** — any of the nine modes, one to eight colours from
-  a built-in palette, and the speed and intensity sliders
+- **A custom effect builder** — any of the thirteen modes, one to eight colours
+  from a built-in palette, and the speed and intensity sliders
 - **Brightness** 0–100% in steps of 5, converted to the firmware's 0–225 scale
 - **On / Off** as a switch in the header, next to the connection status
 - **Live status** per strip, pushed from `lights/+/state` as the strips report
 
 ## Effects
 
-![GlowPanel showing the Effects tab: nine preset buttons with Cylon selected, a Run For duration row with 5 min selected, and a banner reading "Scan · 4:26 left" beside a Stop button](GlowPanelEffects.png)
+![Glow Panel on the Effects tab: nine preset buttons — Dolly, Cylon, Cyberpunk, Pac-Man, Matrix, Fifth Element, Tron, Tetris, Phosphor — with Cyberpunk selected and running, a Run For row with 5 min chosen, and a banner reading "Neon · 4:45 left" beside a Stop button](GlowPanelEffects.png)
 
 A theme is a look the strips hold. An effect is something they *do* — it runs,
 it can time out, and when it stops the strips go back to whatever theme was
@@ -41,7 +41,7 @@ The other seven are ours:
 
 | Preset | Mode | Reference |
 |---|---|---|
-| **Cyberpunk** 🐉 | Flicker | The dragon hoarding over the noodle bar in *Blade Runner* — cold blue neon with the red of its tongue through it, on Flicker because the sign is a tube that is never quite steady |
+| **Cyberpunk** 🐉 | Neon | The dragon hoarding over the noodle bar in *Blade Runner* — cold blue neon with the red of its tongue through it, lit at once rather than one colour at a time |
 | **Pac-Man** 👻 | Chase | All four ghosts nose to tail, in [GlowGhosts](../../PlatformIO/GlowGhosts)' colours rather than the arcade's — see below |
 | **Matrix** 🟩 | Rain | Digital rain — drops at their own rates and lengths, each a bright head over a fading tail |
 | **Fifth Element** 🎤 | Neon | Ruby Rhod's leopard, gold and hot pink, lit at once and clashing on purpose |
@@ -86,9 +86,10 @@ They replaced the originals for Wipe, Chase, Flicker, Pulse, Strobe, Loop and
 Blend, which were a tour of the nine renderers: one preset per mode, a colour or
 two each, doing the plainest possible version of what that mode does. That is a
 good way to demonstrate firmware and a poor way to fill a grid someone presses.
-Picking the mode that serves the picture instead is why three presets are now
-Chase, two are Sparkle, and nothing at all is left on Wipe — the builder still
-reaches all nine modes, which is where the completeness belongs.
+Picking the mode that serves the picture instead is why two presets are now
+Neon and nothing at all is left on Wipe, Strobe, Blend, Loop or Flicker — the
+builder still reaches all thirteen modes, which is where the completeness
+belongs.
 
 **Effects share the theme panel rather than taking a second screen.** The
 brightness slider and the power switch stay reachable whichever grid is showing,
@@ -125,10 +126,10 @@ cap is on the mode rather than the preset, so the builder inherits it.
 
 ## The custom builder
 
-![The Custom tab: a mode row with Loop, Blend and Flicker greyed out, four colour swatches, a 24-colour palette, a preview strip, speed and intensity sliders, and Apply beside a running-effect banner](GlowPanelCustom.png)
+![The Custom tab: a row of all thirteen modes with Sparkle selected, one colour swatch, the 24-colour palette, a preview strip, speed and intensity sliders with a line saying what intensity means in the chosen mode, and Apply beside Stop](GlowPanelCustom.png)
 
 The presets are nine points in a space the firmware opens up entirely: any of
-the nine modes, any one to eight colours, any speed and intensity. The Custom
+the thirteen modes, any one to eight colours, any speed and intensity. The Custom
 tab is that space, and it takes the whole middle of the page — six rows of
 controls do not fit alongside the brightness panel at 900x660, so brightness
 stands down while composing and comes back on the other two tabs.
@@ -187,7 +188,7 @@ held a 60-LED strip to a 2.3s sweep when 1.1s was both asked for and perfectly
 readable. It is the right guard for a slider the user can drag anywhere, and the
 wrong one for a preset that has already said how fast it wants to cross.
 
-Order matters in six of the nine modes — the palette is the animation's
+Order matters in most of the thirteen modes — the palette is the animation's
 sequence, not just its ingredients — so swatches can be moved with ◀ and ▶.
 Sparkle is the exception: it lays colours out by LED position, which is why it
 is the one mode whose preview is a fair likeness rather than a single frame of

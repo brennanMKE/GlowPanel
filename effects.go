@@ -65,17 +65,23 @@ var effects = []Effect{
 		TraverseMs: 1100},
 
 	// The dragon hoarding sign over the noodle bar in Blade Runner: cold blue
-	// neon with the red of its tongue running through it. FLICKER because the
-	// sign is a bad tube - it is never quite steady - and because FLICKER
-	// forces saturation to full, which these three vivid colours already are.
+	// neon with the red of its tongue running through it.
 	//
-	// Speed and intensity were dead here until the firmware gave FLICKER its
-	// knobs; both were carried over from Candle and did nothing. A neon tube is
-	// not a candle: it buzzes rather than gutters, and it drops out hard, so
-	// this now sits near the fast, deep end of both.
+	// NEON, not FLICKER, and this preset is why NEON exists. FLICKER applies
+	// one hue to the whole strip at a time, so these three came out as the
+	// strip entirely blue, then entirely cyan, then entirely red - a sign that
+	// changes colour rather than a sign with a red tongue. NEON indexes the
+	// palette by LED position, in blocks of the device's ledsPerColor, so the
+	// blue tube and the red one are lit at once and neither bleeds into the
+	// other.
+	//
+	// Speed and intensity were dead here until the firmware gave both modes
+	// their knobs; the values were carried over from Candle and did nothing. A
+	// neon tube is not a candle - it buzzes rather than gutters, and it drops
+	// out hard - so this sits near the fast, deep end of both.
 	{ID: "cyberpunk", Label: "Cyberpunk", Emoji: "🐉",
 		Color:  "linear-gradient(135deg,#0088ff,#00ffff 45%,#ff0000)",
-		Mode:   "FLICKER",
+		Mode:   "NEON",
 		Colors: []string{"#0088FF", "#00FFFF", "#FF0000"}, Speed: 205, Intensity: 215},
 
 	// The four ghosts, in the order they leave the pen. The colours are
